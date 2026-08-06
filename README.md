@@ -30,6 +30,7 @@ firebase emulators:start --only firestore
 # Terminal 2 — point the API at the emulator and run dev
 export FIRESTORE_EMULATOR_HOST=127.0.0.1:8080
 export GOOGLE_CLOUD_PROJECT=local-wedding-agent
+export FIRESTORE_DATABASE_ID=wedding
 npm run dev
 ```
 

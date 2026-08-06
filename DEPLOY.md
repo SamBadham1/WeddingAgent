@@ -224,9 +224,13 @@ Firestore. On first startup the server seeds sample data when the
 
 ```bash
 gcloud firestore databases create \
+  --database=wedding \
   --location="$REGION" \
   --project="$PROJECT_ID"
 ```
+
+The app connects to the database with ID **`wedding`** (override with
+`FIRESTORE_DATABASE_ID` if needed).
 
 Use the same region as Cloud Run (`australia-southeast1`) when possible.
 
@@ -263,6 +267,7 @@ connection string or Secret Manager entry is required.
 firebase emulators:start --only firestore
 export FIRESTORE_EMULATOR_HOST=127.0.0.1:8080
 export GOOGLE_CLOUD_PROJECT=local-wedding-agent
+export FIRESTORE_DATABASE_ID=wedding
 npm run dev
 ```
 
