@@ -45,7 +45,7 @@ images:
   - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:latest
 
 substitutions:
-  _REGION: us-central1
+  _REGION: australia-southeast1
   _REPO: wedding-agent
   _SERVICE: wedding-agent
 

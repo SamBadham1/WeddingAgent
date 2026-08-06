@@ -21,8 +21,8 @@ Repo pieces:
 
 Run these with the `gcloud` CLI authenticated to your account. Replace
 `PROJECT_ID` with your project. Region/repo/service default to
-`us-central1` / `wedding-agent` / `wedding-agent` (matching `cloudbuild.yaml`
-substitutions).
+`australia-southeast1` (Sydney — the Google Cloud region closest to Auckland) /
+`wedding-agent` / `wedding-agent` (matching `cloudbuild.yaml` substitutions).
 
 ```bash
 # 0. Select project and enable the required APIs
@@ -35,7 +35,7 @@ gcloud services enable \
 # 1. Create the Artifact Registry Docker repo (name must match _REPO)
 gcloud artifacts repositories create wedding-agent \
   --repository-format=docker \
-  --location=us-central1 \
+  --location=australia-southeast1 \
   --description="WeddingAgent container images"
 ```
 
@@ -84,7 +84,7 @@ service publicly reachable and prints the service URL on success.
    ```bash
    gcloud builds triggers create github \
      --name=wedding-agent-deploy \
-     --region=us-central1 \
+     --region=australia-southeast1 \
      --repo-owner=SamBadham1 \
      --repo-name=WeddingAgent \
      --branch-pattern='^main$' \
