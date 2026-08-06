@@ -22,10 +22,14 @@ Repo pieces:
 Run these with the `gcloud` CLI authenticated to your account.
 
 First set your project ID and region as shell variables — every command below
-reuses them. Find your project ID with `gcloud projects list` (the `PROJECT_ID`
-column). Note: a GCP project ID is lowercase letters, digits, and hyphens only
-(e.g. `wedding-agent-prod`); passing the literal placeholder or a name with
-underscores/uppercase gives `INVALID_ARGUMENT`.
+reuses them. Find your project ID with `gcloud projects list` and use the
+**`PROJECT_ID`** column (the lowercase-letters/digits/hyphens string, e.g.
+`wedding-agent-prod`) — **not** the numeric `PROJECT_NUMBER`. Notes:
+
+- Passing the literal placeholder or a name with underscores/uppercase gives
+  `INVALID_ARGUMENT`.
+- Some commands (e.g. `gcloud builds submit`) reject a project *number* with
+  "set it to PROJECT ID instead" — always use the ID string.
 
 ```bash
 # Set these once for the rest of the guide
@@ -70,13 +74,27 @@ gcloud projects add-iam-policy-binding "$PROJECT_ID" \
 
 ## First deploy (manual, to verify everything works)
 
-The quickest way to confirm the image + service work before wiring the trigger:
+The quickest way to confirm the image + service work before wiring the trigger.
+
+> Run this from the **repo root**, on a branch that contains `Dockerfile` and
+> `cloudbuild.yaml`. `gcloud builds submit` uploads the current directory as the
+> build context, so you must be inside the cloned repository (otherwise you'll see
+> `fatal: not a git repository`). Until PR #1 is merged to `main`, check out that
+> branch first:
+>
+> ```bash
+> git clone https://github.com/SamBadham1/WeddingAgent.git
+> cd WeddingAgent
+> git checkout cursor/setup-dev-environment-4d27
+> ```
 
 ```bash
-# Builds via cloudbuild.yaml and deploys once, using SHORT_SHA from the current commit
+# Tag the image with the current commit (falls back to a timestamp if not a git checkout)
+SHORT_SHA=$(git rev-parse --short HEAD 2>/dev/null || date +%Y%m%d%H%M%S)
+
 gcloud builds submit --config cloudbuild.yaml \
   --project="$PROJECT_ID" \
-  --substitutions=SHORT_SHA=$(git rev-parse --short HEAD)
+  --substitutions=SHORT_SHA="$SHORT_SHA"
 ```
 
 `gcloud run deploy ... --allow-unauthenticated` (in `cloudbuild.yaml`) makes the
