@@ -32,9 +32,22 @@ reuses them. Find your project ID with `gcloud projects list` and use the
   "set it to PROJECT ID instead" — always use the ID string.
 
 ```bash
+# List projects and copy the projectId (string) — NOT the projectNumber:
+gcloud projects list --format="table(projectId, name, projectNumber)"
+
 # Set these once for the rest of the guide
-export PROJECT_ID="your-project-id"          # e.g. wedding-agent-prod
+export PROJECT_ID="your-project-id"          # e.g. wedding-agent-prod (a string, not digits)
 export REGION="australia-southeast1"         # Sydney — closest to Auckland
+
+# If you only have the project NUMBER, resolve the ID from it:
+#   export PROJECT_ID="$(gcloud projects list \
+#     --filter='projectNumber=YOUR_NUMBER' --format='value(projectId)')"
+
+# Guard: fail early if PROJECT_ID was accidentally set to the numeric project number.
+case "$PROJECT_ID" in
+  ''|*[!0-9]*) : ;;  # empty or contains non-digits → looks like an ID (ok)
+  *) echo "PROJECT_ID='$PROJECT_ID' looks like a project NUMBER; set it to the project ID string" ;;
+esac
 ```
 
 ```bash
