@@ -45,7 +45,7 @@ let guestId = 4
 let taskId = 6
 
 const wedding: Wedding = {
-  coupleNames: 'Alex & Sam',
+  coupleNames: 'Sam & Sam',
   date: '2026-09-19',
   totalBudget: 30000,
 }
