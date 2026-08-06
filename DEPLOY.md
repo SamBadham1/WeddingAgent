@@ -67,14 +67,25 @@ gcloud artifacts repositories create wedding-agent \
   --description="WeddingAgent container images"
 ```
 
-### Grant the Cloud Build service account permission to deploy
+### Grant the Cloud Build service account its permissions
 
-The trigger's build service account needs to deploy to Cloud Run and act as the
-Cloud Run runtime service account:
+Builds run as a service account (by default the Compute Engine default SA). On
+newer projects that account starts with **no roles** (the org policy
+`iam.automaticIamGrantsForDefaultServiceAccounts` disables the old automatic
+Editor grant), so Cloud Build fails to build/log/deploy — and trigger creation
+can fail with *"insufficient permissions from service account …compute@developer…
+to project …"*. Grant it:
+
+- `roles/cloudbuild.builds.builder` — run builds, write logs, push images
+- `roles/run.admin` — deploy Cloud Run revisions
+- `roles/iam.serviceAccountUser` — act as the Cloud Run runtime service account
 
 ```bash
 PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
 BUILD_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"   # or your dedicated build SA
+
+gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+  --member="serviceAccount:${BUILD_SA}" --role="roles/cloudbuild.builds.builder"
 
 gcloud projects add-iam-policy-binding "$PROJECT_ID" \
   --member="serviceAccount:${BUILD_SA}" --role="roles/run.admin"
