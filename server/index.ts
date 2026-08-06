@@ -1,7 +1,20 @@
-import express, { type Request, type Response } from 'express'
+import express, { type Request, type Response, type NextFunction } from 'express'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import {
+  createGuest,
+  createTask,
+  getBudget,
+  getGuests,
+  getPlanningContext,
+  getTasks,
+  getWeddingSummary,
+  seedIfEmpty,
+  updateGuestRsvp,
+  updateTaskDone,
+} from './db/store.js'
+import type { Guest } from './db/types.js'
 
 const app = express()
 app.use(express.json())
@@ -11,70 +24,14 @@ const PORT = Number(process.env.PORT ?? 3001)
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 // ---------------------------------------------------------------------------
-// Types & in-memory data store
-// ---------------------------------------------------------------------------
-
-interface Guest {
-  id: number
-  name: string
-  rsvp: 'yes' | 'no' | 'pending'
-  group: string
-}
-
-interface Task {
-  id: number
-  title: string
-  done: boolean
-  dueWeeksBefore: number
-}
-
-interface BudgetItem {
-  id: number
-  category: string
-  estimated: number
-  actual: number
-}
-
-interface Wedding {
-  coupleNames: string
-  date: string
-  totalBudget: number
-}
-
-let guestId = 4
-let taskId = 6
-
-const wedding: Wedding = {
-  coupleNames: 'Sam & Sam',
-  date: '2026-09-19',
-  totalBudget: 30000,
-}
-
-const guests: Guest[] = [
-  { id: 1, name: 'Jordan Rivera', rsvp: 'yes', group: 'Family' },
-  { id: 2, name: 'Taylor Chen', rsvp: 'pending', group: 'Friends' },
-  { id: 3, name: 'Morgan Patel', rsvp: 'no', group: 'Work' },
-]
-
-const tasks: Task[] = [
-  { id: 1, title: 'Book venue', done: true, dueWeeksBefore: 40 },
-  { id: 2, title: 'Send save-the-dates', done: true, dueWeeksBefore: 32 },
-  { id: 3, title: 'Choose caterer', done: false, dueWeeksBefore: 24 },
-  { id: 4, title: 'Order invitations', done: false, dueWeeksBefore: 16 },
-  { id: 5, title: 'Finalize guest list', done: false, dueWeeksBefore: 12 },
-]
-
-const budget: BudgetItem[] = [
-  { id: 1, category: 'Venue', estimated: 12000, actual: 12500 },
-  { id: 2, category: 'Catering', estimated: 9000, actual: 0 },
-  { id: 3, category: 'Photography', estimated: 3500, actual: 3200 },
-]
-
-// ---------------------------------------------------------------------------
 // Wedding "agent" — rule-based planning assistant (no external LLM required)
 // ---------------------------------------------------------------------------
 
-function planningReply(message: string): string {
+function planningReply(
+  message: string,
+  ctx: Awaited<ReturnType<typeof getPlanningContext>>,
+): string {
+  const { wedding, guests, tasks, budget } = ctx
   const text = message.toLowerCase()
   const confirmed = guests.filter((g) => g.rsvp === 'yes').length
   const pending = guests.filter((g) => g.rsvp === 'pending').length
@@ -131,81 +88,142 @@ function planningReply(message: string): string {
 // Routes
 // ---------------------------------------------------------------------------
 
+function asyncHandler(
+  fn: (req: Request, res: Response, next: NextFunction) => Promise<void>,
+) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    fn(req, res, next).catch(next)
+  }
+}
+
 app.get('/api/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', service: 'wedding-agent', time: new Date().toISOString() })
 })
 
-app.get('/api/wedding', (_req: Request, res: Response) => {
-  const spent = budget.reduce((sum, b) => sum + b.actual, 0)
-  res.json({ ...wedding, spent, remaining: wedding.totalBudget - spent })
-})
+app.get(
+  '/api/wedding',
+  asyncHandler(async (_req, res) => {
+    res.json(await getWeddingSummary())
+  }),
+)
 
-app.get('/api/guests', (_req: Request, res: Response) => {
-  res.json(guests)
-})
+app.get(
+  '/api/guests',
+  asyncHandler(async (_req, res) => {
+    res.json(await getGuests())
+  }),
+)
 
-app.post('/api/guests', (req: Request, res: Response) => {
-  const { name, group } = req.body ?? {}
-  if (typeof name !== 'string' || name.trim() === '') {
-    return res.status(400).json({ error: 'name is required' })
-  }
-  const guest: Guest = {
-    id: ++guestId,
-    name: name.trim(),
-    rsvp: 'pending',
-    group: typeof group === 'string' && group.trim() !== '' ? group.trim() : 'Other',
-  }
-  guests.push(guest)
-  res.status(201).json(guest)
-})
+app.post(
+  '/api/guests',
+  asyncHandler(async (req, res) => {
+    const { name, group } = req.body ?? {}
+    if (typeof name !== 'string' || name.trim() === '') {
+      res.status(400).json({ error: 'name is required' })
+      return
+    }
+    const guest = await createGuest(
+      name.trim(),
+      typeof group === 'string' && group.trim() !== '' ? group.trim() : 'Other',
+    )
+    res.status(201).json(guest)
+  }),
+)
 
-app.patch('/api/guests/:id', (req: Request, res: Response) => {
-  const guest = guests.find((g) => g.id === Number(req.params.id))
-  if (!guest) return res.status(404).json({ error: 'guest not found' })
-  const { rsvp } = req.body ?? {}
-  if (rsvp === 'yes' || rsvp === 'no' || rsvp === 'pending') {
-    guest.rsvp = rsvp
-  }
-  res.json(guest)
-})
+app.patch(
+  '/api/guests/:id',
+  asyncHandler(async (req, res) => {
+    const { rsvp } = req.body ?? {}
+    if (rsvp !== 'yes' && rsvp !== 'no' && rsvp !== 'pending') {
+      const guest = await getGuests().then((list) =>
+        list.find((g) => g.id === Number(req.params.id)),
+      )
+      if (!guest) {
+        res.status(404).json({ error: 'guest not found' })
+        return
+      }
+      res.json(guest)
+      return
+    }
+    const guest = await updateGuestRsvp(Number(req.params.id), rsvp as Guest['rsvp'])
+    if (!guest) {
+      res.status(404).json({ error: 'guest not found' })
+      return
+    }
+    res.json(guest)
+  }),
+)
 
-app.get('/api/tasks', (_req: Request, res: Response) => {
-  res.json(tasks)
-})
+app.get(
+  '/api/tasks',
+  asyncHandler(async (_req, res) => {
+    res.json(await getTasks())
+  }),
+)
 
-app.post('/api/tasks', (req: Request, res: Response) => {
-  const { title, dueWeeksBefore } = req.body ?? {}
-  if (typeof title !== 'string' || title.trim() === '') {
-    return res.status(400).json({ error: 'title is required' })
-  }
-  const task: Task = {
-    id: ++taskId,
-    title: title.trim(),
-    done: false,
-    dueWeeksBefore: Number.isFinite(dueWeeksBefore) ? Number(dueWeeksBefore) : 8,
-  }
-  tasks.push(task)
-  res.status(201).json(task)
-})
+app.post(
+  '/api/tasks',
+  asyncHandler(async (req, res) => {
+    const { title, dueWeeksBefore } = req.body ?? {}
+    if (typeof title !== 'string' || title.trim() === '') {
+      res.status(400).json({ error: 'title is required' })
+      return
+    }
+    const task = await createTask(
+      title.trim(),
+      Number.isFinite(dueWeeksBefore) ? Number(dueWeeksBefore) : 8,
+    )
+    res.status(201).json(task)
+  }),
+)
 
-app.patch('/api/tasks/:id', (req: Request, res: Response) => {
-  const task = tasks.find((t) => t.id === Number(req.params.id))
-  if (!task) return res.status(404).json({ error: 'task not found' })
-  const { done } = req.body ?? {}
-  if (typeof done === 'boolean') task.done = done
-  res.json(task)
-})
+app.patch(
+  '/api/tasks/:id',
+  asyncHandler(async (req, res) => {
+    const { done } = req.body ?? {}
+    if (typeof done !== 'boolean') {
+      const task = await getTasks().then((list) =>
+        list.find((t) => t.id === Number(req.params.id)),
+      )
+      if (!task) {
+        res.status(404).json({ error: 'task not found' })
+        return
+      }
+      res.json(task)
+      return
+    }
+    const task = await updateTaskDone(Number(req.params.id), done)
+    if (!task) {
+      res.status(404).json({ error: 'task not found' })
+      return
+    }
+    res.json(task)
+  }),
+)
 
-app.get('/api/budget', (_req: Request, res: Response) => {
-  res.json(budget)
-})
+app.get(
+  '/api/budget',
+  asyncHandler(async (_req, res) => {
+    res.json(await getBudget())
+  }),
+)
 
-app.post('/api/agent', (req: Request, res: Response) => {
-  const { message } = req.body ?? {}
-  if (typeof message !== 'string' || message.trim() === '') {
-    return res.status(400).json({ error: 'message is required' })
-  }
-  res.json({ reply: planningReply(message) })
+app.post(
+  '/api/agent',
+  asyncHandler(async (req, res) => {
+    const { message } = req.body ?? {}
+    if (typeof message !== 'string' || message.trim() === '') {
+      res.status(400).json({ error: 'message is required' })
+      return
+    }
+    const ctx = await getPlanningContext()
+    res.json({ reply: planningReply(message, ctx) })
+  }),
+)
+
+app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+  console.error('[wedding-agent] request error:', err)
+  res.status(500).json({ error: 'internal server error' })
 })
 
 // ---------------------------------------------------------------------------
@@ -223,7 +241,18 @@ if (fs.existsSync(clientDir)) {
   console.log(`[wedding-agent] serving static client from ${clientDir}`)
 }
 
-// Bind to 0.0.0.0 so the container is reachable on Cloud Run.
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`[wedding-agent] listening on http://0.0.0.0:${PORT}`)
+// ---------------------------------------------------------------------------
+// Startup: seed Firestore if empty, then listen
+// ---------------------------------------------------------------------------
+
+async function start() {
+  await seedIfEmpty()
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`[wedding-agent] listening on http://0.0.0.0:${PORT}`)
+  })
+}
+
+start().catch((err) => {
+  console.error('[wedding-agent] failed to start:', err)
+  process.exit(1)
 })
