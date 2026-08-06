@@ -11,9 +11,9 @@ Repo pieces:
 - `cloudbuild.yaml` — build the image, push it to Artifact Registry, deploy to Cloud Run.
 - `npm run build` — produces `dist/` (web) and `dist-server/index.js` (server).
 
-> Note: the data store is still **in-memory**, so a deployed revision resets its
-> data on restart/redeploy. Add Cloud SQL (Postgres) or Firestore before relying
-> on it for real data.
+> Note: the data store is **Firestore**. Data persists across restarts and
+> redeploys. See [Firestore setup](#firestore-setup) below for one-time
+> configuration.
 
 ---
 
@@ -57,6 +57,7 @@ gcloud services enable \
   run.googleapis.com \
   cloudbuild.googleapis.com \
   artifactregistry.googleapis.com \
+  firestore.googleapis.com \
   --project="$PROJECT_ID"
 
 # 1. Create the Artifact Registry Docker repo (name must match _REPO)
@@ -213,10 +214,67 @@ region for you.
 
 ---
 
+## Firestore setup
+
+WeddingAgent stores guests, tasks, budget items, and wedding metadata in
+Firestore. On first startup the server seeds sample data when the
+`wedding/default` document is missing.
+
+### 1. Create the Firestore database
+
+```bash
+gcloud firestore databases create \
+  --database=wedding \
+  --location="$REGION" \
+  --project="$PROJECT_ID"
+```
+
+The app connects to the database with ID **`wedding`** (override with
+`FIRESTORE_DATABASE_ID` if needed).
+
+Use the same region as Cloud Run (`australia-southeast1`) when possible.
+
+### 2. Grant the Cloud Run service account access
+
+The default Compute Engine service account runs the Cloud Run revision. Grant it
+the Firestore user role:
+
+```bash
+PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
+RUN_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+
+gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+  --member="serviceAccount:${RUN_SA}" \
+  --role="roles/datastore.user"
+```
+
+On Cloud Run the Firestore client uses Application Default Credentials — no
+connection string or Secret Manager entry is required.
+
+### 3. Collections created at runtime
+
+| Collection | Document ID | Fields |
+| ---------- | ----------- | ------ |
+| `wedding` | `default` | `coupleNames`, `date`, `totalBudget` |
+| `guests` | numeric string (`"1"`, `"2"`, …) | `name`, `rsvp`, `group` |
+| `tasks` | numeric string | `title`, `done`, `dueWeeksBefore` |
+| `budget` | numeric string | `category`, `estimated`, `actual` |
+| `counters` | `ids` | `guestId`, `taskId`, `budgetId` |
+
+### Local development with the emulator
+
+```bash
+firebase emulators:start --only firestore
+export FIRESTORE_EMULATOR_HOST=127.0.0.1:8080
+export GOOGLE_CLOUD_PROJECT=local-wedding-agent
+export FIRESTORE_DATABASE_ID=wedding
+npm run dev
+```
+
+---
+
 ## Suggested next steps
 
-- **Persistence:** add Cloud SQL (Postgres) or Firestore and replace the in-memory
-  store; wire the connection string through **Secret Manager**.
 - **Staged rollouts:** add **Cloud Deploy** with `staging → production` targets and
   approval gates if you need progressive/canary delivery.
 - **Custom domain + CDN:** map a domain to the service, or front it with a Global

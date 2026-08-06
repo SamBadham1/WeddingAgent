@@ -6,7 +6,7 @@ checklist**, and ask a built-in planning **agent** what to do next.
 The stack is a single TypeScript app:
 
 - **Frontend** — React + Vite (dev server on port `5173`)
-- **Backend** — Express API with an in-memory data store (port `3001`)
+- **Backend** — Express API backed by **Firestore** (port `3001`)
 - **Agent** — a rule-based planning assistant, so no external API keys are required
 
 ## Getting started
@@ -17,6 +17,28 @@ npm run dev      # start the API (3001) and web (5173) dev servers together
 ```
 
 Then open http://localhost:5173.
+
+### Firestore (local dev)
+
+The API persists data in **Firestore**. For local development, use the
+Firestore emulator:
+
+```bash
+# Terminal 1 — start the emulator (requires the Firebase CLI)
+firebase emulators:start --only firestore
+
+# Terminal 2 — point the API at the emulator and run dev
+export FIRESTORE_EMULATOR_HOST=127.0.0.1:8080
+export GOOGLE_CLOUD_PROJECT=local-wedding-agent
+export FIRESTORE_DATABASE_ID=wedding
+npm run dev
+```
+
+On first startup the server seeds the database with sample wedding data if the
+`wedding/default` document does not exist.
+
+For development against a real GCP project, set `GOOGLE_CLOUD_PROJECT` and
+authenticate with Application Default Credentials (`gcloud auth application-default login`).
 
 ### Useful scripts
 
