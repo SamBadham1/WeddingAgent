@@ -43,6 +43,22 @@ Then open http://localhost:5173.
 | GET    | `/api/budget`        | List budget line items               |
 | POST   | `/api/agent`         | Ask the planning agent a question    |
 
+## Production build
+
+```bash
+npm run build     # builds dist/ (web) and dist-server/index.js (server)
+npm start         # runs the production server (serves web + /api on $PORT, default 8080)
+```
+
+In production a single Node process serves the built React app and the API on
+one port, which is what the container runs.
+
+## Deployment
+
+The repo includes a `Dockerfile` and a Cloud Build pipeline (`cloudbuild.yaml`)
+for **Google Cloud Run**. See [`DEPLOY.md`](./DEPLOY.md) for the full setup
+(APIs, Artifact Registry, IAM, and the GitHub-triggered build → deploy pipeline).
+
 ## Cloud Agent environment
 
 `.cursor/environment.json` configures the Cloud Agent environment: it runs

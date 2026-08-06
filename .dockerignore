@@ -1,0 +1,14 @@
+node_modules
+dist
+dist-server
+.git
+.gitignore
+*.log
+.DS_Store
+.env
+.env.local
+npm-debug.log*
+.cursor
+README.md
+DEPLOY.md
+cloudbuild.yaml
