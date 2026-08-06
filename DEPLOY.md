@@ -94,6 +94,17 @@ gcloud projects add-iam-policy-binding "$PROJECT_ID" \
   --member="serviceAccount:${BUILD_SA}" --role="roles/iam.serviceAccountUser"
 ```
 
+Verify the roles actually landed (sandbox/locked-down projects may silently
+block IAM changes — a common cause of *"insufficient permissions from service
+account …compute@developer… to project …"* persisting after granting them):
+
+```bash
+gcloud projects get-iam-policy "$PROJECT_ID" \
+  --flatten="bindings[].members" \
+  --filter="bindings.members:${BUILD_SA}" \
+  --format="table(bindings.role)"
+```
+
 ---
 
 ## First deploy (manual, to verify everything works)
@@ -123,6 +134,31 @@ gcloud builds submit --config cloudbuild.yaml \
 
 `gcloud run deploy ... --allow-unauthenticated` (in `cloudbuild.yaml`) makes the
 service publicly reachable and prints the service URL on success.
+
+### Alternative: build + push with local Docker (bypasses the Cloud Build SA)
+
+Useful when the Cloud Build service account can't be granted the needed roles
+(e.g. temporary sandbox/playground projects, or persistent *"insufficient
+permissions from service account …compute@developer…"* errors). Cloud Shell has
+Docker, so this builds and deploys as **your** identity — no build SA or trigger
+required. Requires the Artifact Registry repo from step 1.
+
+```bash
+gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/wedding-agent/wedding-agent:$(git rev-parse --short HEAD 2>/dev/null || date +%s)"
+
+docker build -t "$IMAGE" .
+docker push "$IMAGE"
+
+gcloud run deploy wedding-agent \
+  --image "$IMAGE" \
+  --region "$REGION" \
+  --allow-unauthenticated \
+  --project "$PROJECT_ID"
+```
+
+This prints a public `run.app` URL. Wire the automated GitHub trigger later in a
+standard (non-sandbox) project.
 
 ---
 
