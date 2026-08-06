@@ -117,18 +117,31 @@ service publicly reachable and prints the service URL on success.
 
 ## Wire the managed pipeline (deploy on every push)
 
-1. **Connect the GitHub repo to Cloud Build.** In the Google Cloud console go to
-   *Cloud Build → Triggers → Connect repository* and authorize the Cloud Build
-   GitHub app for `SamBadham1/WeddingAgent`. (This authorization step is easiest
-   via the console.)
+> The **Cloud Run deploy region is set in `cloudbuild.yaml` (`_REGION`)**, so it
+> always deploys to `australia-southeast1` regardless of where the trigger/build
+> runs. You do not need a regional trigger to deploy to Sydney.
 
-2. **Create the trigger** (build on pushes to `main`):
+**Easiest: create the trigger in the Console.** Cloud Build → *Triggers* →
+*Connect Repository* → **GitHub (Cloud Build GitHub App)** → authorize
+`SamBadham1/WeddingAgent` → then **Create Trigger** (event: push to `^main$`,
+configuration: `cloudbuild.yaml`). The console handles the GitHub connection and
+region for you.
+
+**CLI alternative:**
+
+1. **Connect the repo first.** A classic GitHub trigger only works after the repo
+   is linked via the Cloud Build GitHub App (do this once in the console:
+   *Cloud Build → Triggers → Connect repository*). Without it, the create call
+   fails with `INVALID_ARGUMENT`.
+
+2. **Create the trigger — global (no `--region`).** Classic `create github`
+   triggers are global; passing `--region` mixes them with the regional (2nd-gen)
+   model and can throw `INVALID_ARGUMENT`:
 
    ```bash
    gcloud builds triggers create github \
      --project="$PROJECT_ID" \
      --name=wedding-agent-deploy \
-     --region="$REGION" \
      --repo-owner=SamBadham1 \
      --repo-name=WeddingAgent \
      --branch-pattern='^main$' \
@@ -136,10 +149,20 @@ service publicly reachable and prints the service URL on success.
    ```
 
    Adjust `--branch-pattern` if you want to deploy from a different branch.
+   Inspect existing triggers/connections with:
+
+   ```bash
+   gcloud builds triggers list --project="$PROJECT_ID"
+   gcloud builds connections list --project="$PROJECT_ID" --region="$REGION"
+   ```
 
 3. **Push to the branch.** Each push now builds the image, pushes it to Artifact
    Registry, and rolls out a new Cloud Run revision automatically. Roll back any
    time from *Cloud Run → Revisions*.
+
+> Note: temporary sandbox/playground projects may block installing the Cloud
+> Build GitHub App or creating triggers via org policy, which can also appear as
+> `INVALID_ARGUMENT`. Use a standard project if the connect flow is blocked.
 
 ---
 
