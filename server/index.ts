@@ -1,9 +1,14 @@
 import express, { type Request, type Response } from 'express'
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const app = express()
 app.use(express.json())
 
+// Cloud Run injects PORT (defaults to 8080); fall back to 3001 for local dev.
 const PORT = Number(process.env.PORT ?? 3001)
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 // ---------------------------------------------------------------------------
 // Types & in-memory data store
@@ -203,6 +208,22 @@ app.post('/api/agent', (req: Request, res: Response) => {
   res.json({ reply: planningReply(message) })
 })
 
-app.listen(PORT, () => {
-  console.log(`[wedding-agent] API listening on http://localhost:${PORT}`)
+// ---------------------------------------------------------------------------
+// Production: serve the built React app from the same server (single Cloud Run
+// container). In dev the frontend is served by Vite and proxies /api here, so
+// this block is skipped when the build output is absent.
+// ---------------------------------------------------------------------------
+
+const clientDir = path.join(__dirname, '..', 'dist')
+if (fs.existsSync(clientDir)) {
+  app.use(express.static(clientDir))
+  app.get('*', (_req: Request, res: Response) => {
+    res.sendFile(path.join(clientDir, 'index.html'))
+  })
+  console.log(`[wedding-agent] serving static client from ${clientDir}`)
+}
+
+// Bind to 0.0.0.0 so the container is reachable on Cloud Run.
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`[wedding-agent] listening on http://0.0.0.0:${PORT}`)
 })
