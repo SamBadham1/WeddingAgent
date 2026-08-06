@@ -19,23 +19,34 @@ Repo pieces:
 
 ## One-time GCP setup
 
-Run these with the `gcloud` CLI authenticated to your account. Replace
-`PROJECT_ID` with your project. Region/repo/service default to
-`australia-southeast1` (Sydney — the Google Cloud region closest to Auckland) /
-`wedding-agent` / `wedding-agent` (matching `cloudbuild.yaml` substitutions).
+Run these with the `gcloud` CLI authenticated to your account.
+
+First set your project ID and region as shell variables — every command below
+reuses them. Find your project ID with `gcloud projects list` (the `PROJECT_ID`
+column). Note: a GCP project ID is lowercase letters, digits, and hyphens only
+(e.g. `wedding-agent-prod`); passing the literal placeholder or a name with
+underscores/uppercase gives `INVALID_ARGUMENT`.
+
+```bash
+# Set these once for the rest of the guide
+export PROJECT_ID="your-project-id"          # e.g. wedding-agent-prod
+export REGION="australia-southeast1"         # Sydney — closest to Auckland
+```
 
 ```bash
 # 0. Select project and enable the required APIs
-gcloud config set project PROJECT_ID
+gcloud config set project "$PROJECT_ID"
 gcloud services enable \
   run.googleapis.com \
   cloudbuild.googleapis.com \
-  artifactregistry.googleapis.com
+  artifactregistry.googleapis.com \
+  --project="$PROJECT_ID"
 
 # 1. Create the Artifact Registry Docker repo (name must match _REPO)
 gcloud artifacts repositories create wedding-agent \
+  --project="$PROJECT_ID" \
   --repository-format=docker \
-  --location=australia-southeast1 \
+  --location="$REGION" \
   --description="WeddingAgent container images"
 ```
 
@@ -45,13 +56,13 @@ The trigger's build service account needs to deploy to Cloud Run and act as the
 Cloud Run runtime service account:
 
 ```bash
-PROJECT_NUMBER=$(gcloud projects describe PROJECT_ID --format='value(projectNumber)')
+PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
 BUILD_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"   # or your dedicated build SA
 
-gcloud projects add-iam-policy-binding PROJECT_ID \
+gcloud projects add-iam-policy-binding "$PROJECT_ID" \
   --member="serviceAccount:${BUILD_SA}" --role="roles/run.admin"
 
-gcloud projects add-iam-policy-binding PROJECT_ID \
+gcloud projects add-iam-policy-binding "$PROJECT_ID" \
   --member="serviceAccount:${BUILD_SA}" --role="roles/iam.serviceAccountUser"
 ```
 
@@ -64,6 +75,7 @@ The quickest way to confirm the image + service work before wiring the trigger:
 ```bash
 # Builds via cloudbuild.yaml and deploys once, using SHORT_SHA from the current commit
 gcloud builds submit --config cloudbuild.yaml \
+  --project="$PROJECT_ID" \
   --substitutions=SHORT_SHA=$(git rev-parse --short HEAD)
 ```
 
@@ -83,8 +95,9 @@ service publicly reachable and prints the service URL on success.
 
    ```bash
    gcloud builds triggers create github \
+     --project="$PROJECT_ID" \
      --name=wedding-agent-deploy \
-     --region=australia-southeast1 \
+     --region="$REGION" \
      --repo-owner=SamBadham1 \
      --repo-name=WeddingAgent \
      --branch-pattern='^main$' \
