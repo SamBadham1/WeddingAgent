@@ -1,0 +1,14 @@
+{
+  "name": "wedding-agent-import",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "One-off Firestore import scripts for WeddingAgent (run from Google Cloud Shell).",
+  "scripts": {
+    "import:guests": "node import-guests.mjs",
+    "import:guests:replace": "node import-guests.mjs --replace"
+  },
+  "dependencies": {
+    "@google-cloud/firestore": "^7.11.0"
+  }
+}
