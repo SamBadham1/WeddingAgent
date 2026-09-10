@@ -37,8 +37,16 @@ npm run dev
 On first startup the server seeds the database with sample wedding data if the
 `wedding/default` document does not exist.
 
-For development against a real GCP project, set `GOOGLE_CLOUD_PROJECT` and
-authenticate with Application Default Credentials (`gcloud auth application-default login`).
+For development against a real GCP project:
+
+```bash
+cp .env.example .env
+# Edit .env — set GOOGLE_CLOUD_PROJECT to your GCP project ID string
+gcloud auth application-default login
+npm run dev
+```
+
+On Windows (PowerShell), copy `.env.example` to `.env` instead of `cp`.
 
 ### Useful scripts
 

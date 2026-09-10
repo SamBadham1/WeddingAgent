@@ -256,8 +256,8 @@ connection string or Secret Manager entry is required.
 | Collection | Document ID | Fields |
 | ---------- | ----------- | ------ |
 | `wedding` | `default` | `coupleNames`, `date`, `totalBudget` |
-| `guests` | numeric string (`"1"`, `"2"`, …) | `name`, `rsvp`, `group` |
-| `tasks` | numeric string | `title`, `done`, `dueWeeksBefore` |
+| `guests` | numeric string (`"1"`, `"2"`, …) | `name`, `rsvp`, `group`, `email`, `overnight` |
+| `tasks` | numeric string | `title`, `done` |
 | `budget` | numeric string | `category`, `estimated`, `actual` |
 | `counters` | `ids` | `guestId`, `taskId`, `budgetId` |
 

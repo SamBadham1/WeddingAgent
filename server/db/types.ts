@@ -3,13 +3,14 @@ export interface Guest {
   name: string
   rsvp: 'yes' | 'no' | 'pending'
   group: string
+  email: string
+  overnight: boolean
 }
 
 export interface Task {
   id: number
   title: string
   done: boolean
-  dueWeeksBefore: number
 }
 
 export interface BudgetItem {
