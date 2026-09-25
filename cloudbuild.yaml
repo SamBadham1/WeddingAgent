@@ -39,6 +39,10 @@ steps:
       - --allow-unauthenticated
       - --port
       - "8080"
+      # Cloud Run does not inject GOOGLE_CLOUD_PROJECT; set it explicitly so the
+      # server can reach the named Firestore database without relying on metadata.
+      - --set-env-vars
+      - GOOGLE_CLOUD_PROJECT=$PROJECT_ID,FIRESTORE_DATABASE_ID=wedding
 
 images:
   - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA
