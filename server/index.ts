@@ -7,19 +7,23 @@ import { fileURLToPath } from 'node:url'
 import {
   createBudgetItem,
   createGuest,
+  ensureGuestRsvpTokens,
   createTask,
   getBudget,
+  getGuestByRsvpToken,
   getGuests,
   getPlanningContext,
   getTasks,
   getWeddingSummary,
   seedIfEmpty,
+  submitGuestRsvp,
   updateBudgetItem,
   updateGuest,
   updateTask,
   deleteTask,
   updateWeddingTotalBudget,
 } from './db/store.js'
+import type { Guest } from './db/types.js'
 
 const app = express()
 app.use(express.json())
@@ -219,6 +223,83 @@ app.patch(
   }),
 )
 
+// ---------------------------------------------------------------------------
+// Public RSVP routes, called by the RSVP site with the token from the invite
+// link. They only expose what the RSVP form needs.
+// ---------------------------------------------------------------------------
+
+const rsvpSiteOrigin = new URL(process.env.RSVP_SITE_URL || 'http://localhost:5174').origin
+const RSVP_TOKEN_PATTERN = /^[A-Za-z0-9_-]{22}$/
+const MAX_RSVP_MESSAGE_LENGTH = 2000
+
+app.use('/api/rsvp', (req: Request, res: Response, next: NextFunction) => {
+  if (req.headers.origin === rsvpSiteOrigin) {
+    res.setHeader('Access-Control-Allow-Origin', rsvpSiteOrigin)
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST')
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+    res.setHeader('Vary', 'Origin')
+  }
+  if (req.method === 'OPTIONS') {
+    res.status(204).end()
+    return
+  }
+  next()
+})
+
+function toPublicRsvp(guest: Guest) {
+  return {
+    name: guest.name,
+    rsvp: guest.rsvp,
+    overnight: guest.overnight,
+    message: guest.rsvpMessage,
+  }
+}
+
+app.get(
+  '/api/rsvp/:token',
+  asyncHandler(async (req, res) => {
+    const { token } = req.params
+    const guest = RSVP_TOKEN_PATTERN.test(token) ? await getGuestByRsvpToken(token) : null
+    if (!guest) {
+      res.status(404).json({ error: 'invitation not found' })
+      return
+    }
+    res.json(toPublicRsvp(guest))
+  }),
+)
+
+app.post(
+  '/api/rsvp/:token',
+  asyncHandler(async (req, res) => {
+    const { token } = req.params
+    const { attending, stayingOvernight, message } = req.body ?? {}
+    if (typeof attending !== 'boolean') {
+      res.status(400).json({ error: 'attending must be a boolean' })
+      return
+    }
+    if (attending && typeof stayingOvernight !== 'boolean') {
+      res.status(400).json({ error: 'stayingOvernight must be a boolean when attending' })
+      return
+    }
+    if (message !== undefined && typeof message !== 'string') {
+      res.status(400).json({ error: 'message must be a string' })
+      return
+    }
+    const guest = RSVP_TOKEN_PATTERN.test(token)
+      ? await submitGuestRsvp(token, {
+          attending,
+          stayingOvernight: stayingOvernight === true,
+          message: (message ?? '').trim().slice(0, MAX_RSVP_MESSAGE_LENGTH),
+        })
+      : null
+    if (!guest) {
+      res.status(404).json({ error: 'invitation not found' })
+      return
+    }
+    res.json(toPublicRsvp(guest))
+  }),
+)
+
 app.get(
   '/api/tasks',
   asyncHandler(async (_req, res) => {
@@ -410,6 +491,7 @@ async function start() {
   const { logFirestoreTarget } = await import('./db/firestore.js')
   logFirestoreTarget()
   await seedIfEmpty()
+  await ensureGuestRsvpTokens()
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`[wedding-agent] listening on http://0.0.0.0:${PORT}`)
   })

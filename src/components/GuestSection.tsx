@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import type { Guest } from '../types'
-import { EditIcon } from './icons'
+import { EditIcon, LinkIcon } from './icons'
 
 function GuestRow({
   guest,
@@ -15,6 +15,7 @@ function GuestRow({
   const [email, setEmail] = useState(guest.email)
   const [overnight, setOvernight] = useState(guest.overnight)
   const [saving, setSaving] = useState(false)
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     setGroup(guest.group)
@@ -49,6 +50,12 @@ function GuestRow({
     } finally {
       setSaving(false)
     }
+  }
+
+  async function copyInviteLink() {
+    await navigator.clipboard.writeText(guest.inviteUrl)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
   }
 
   async function cycleRsvp() {
@@ -111,11 +118,23 @@ function GuestRow({
           {guest.overnight && <span className="pill">Overnight</span>}
         </div>
         {guest.email ? <p className="guest-email muted">{guest.email}</p> : null}
+        {guest.rsvpMessage ? <p className="guest-email muted">“{guest.rsvpMessage}”</p> : null}
       </div>
       <div className="guest-row-actions">
         <button className={`rsvp rsvp-${guest.rsvp}`} onClick={cycleRsvp}>
           {guest.rsvp}
         </button>
+        {guest.inviteUrl ? (
+          <button
+            type="button"
+            className="icon-btn"
+            aria-label={`Copy invite link for ${guest.name}`}
+            title={copied ? 'Copied!' : guest.inviteUrl}
+            onClick={copyInviteLink}
+          >
+            {copied ? '✓' : <LinkIcon />}
+          </button>
+        ) : null}
         <button
           type="button"
           className="icon-btn"

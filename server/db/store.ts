@@ -1,4 +1,5 @@
 import type { DocumentData } from '@google-cloud/firestore'
+import { randomBytes } from 'node:crypto'
 import {
   COLLECTIONS,
   COUNTERS_DOC_ID,
@@ -20,7 +21,7 @@ const SEED_WEDDING: Wedding = {
   totalBudget: 30000,
 }
 
-const SEED_GUESTS: Omit<Guest, 'id'>[] = [
+const SEED_GUESTS: Omit<Guest, 'id' | 'rsvpToken' | 'inviteUrl' | 'rsvpMessage'>[] = [
   { name: 'Jordan Rivera', rsvp: 'yes', group: 'Family', email: 'jordan@example.com', overnight: true },
   { name: 'Taylor Chen', rsvp: 'pending', group: 'Friends', email: '', overnight: false },
   { name: 'Morgan Patel', rsvp: 'no', group: 'Work', email: 'morgan@example.com', overnight: false },
@@ -46,7 +47,18 @@ const SEED_COUNTERS: Counters = {
   budgetId: 3,
 }
 
+// 128 random bits, URL-safe - guests can't guess each other's invite links
+function generateRsvpToken(): string {
+  return randomBytes(16).toString('base64url')
+}
+
+function inviteUrlFor(token: string): string {
+  const base = (process.env.RSVP_SITE_URL || 'http://localhost:5174').replace(/\/+$/, '')
+  return `${base}/?g=${encodeURIComponent(token)}`
+}
+
 function guestFromDoc(id: number, data: DocumentData): Guest {
+  const rsvpToken = typeof data.rsvpToken === 'string' ? data.rsvpToken : ''
   return {
     id,
     name: data.name,
@@ -54,6 +66,9 @@ function guestFromDoc(id: number, data: DocumentData): Guest {
     group: data.group,
     email: typeof data.email === 'string' ? data.email : '',
     overnight: data.overnight === true,
+    rsvpToken,
+    inviteUrl: rsvpToken ? inviteUrlFor(rsvpToken) : '',
+    rsvpMessage: typeof data.rsvpMessage === 'string' ? data.rsvpMessage : '',
   }
 }
 
@@ -100,7 +115,10 @@ export async function seedIfEmpty(): Promise<void> {
 
   SEED_GUESTS.forEach((guest, index) => {
     const id = index + 1
-    batch.set(db.collection(COLLECTIONS.guests).doc(String(id)), guest)
+    batch.set(db.collection(COLLECTIONS.guests).doc(String(id)), {
+      ...guest,
+      rsvpToken: generateRsvpToken(),
+    })
   })
 
   SEED_TASKS.forEach((task, index) => {
@@ -115,6 +133,18 @@ export async function seedIfEmpty(): Promise<void> {
 
   await batch.commit()
   console.log('[wedding-agent] seeded Firestore with initial data')
+}
+
+/** Gives any guest created before invite links existed an RSVP token. */
+export async function ensureGuestRsvpTokens(): Promise<void> {
+  const snap = await db.collection(COLLECTIONS.guests).get()
+  const missing = snap.docs.filter((doc) => typeof doc.data().rsvpToken !== 'string')
+  if (missing.length === 0) return
+
+  const batch = db.batch()
+  missing.forEach((doc) => batch.update(doc.ref, { rsvpToken: generateRsvpToken() }))
+  await batch.commit()
+  console.log(`[wedding-agent] generated RSVP tokens for ${missing.length} guest(s)`)
 }
 
 export async function getWedding(): Promise<Wedding> {
@@ -149,6 +179,7 @@ export async function createGuest(
   overnight = false,
 ): Promise<Guest> {
   const id = await nextId('guestId')
+  const rsvpToken = generateRsvpToken()
   const guest: Guest = {
     id,
     name,
@@ -156,6 +187,9 @@ export async function createGuest(
     group,
     email,
     overnight,
+    rsvpToken,
+    inviteUrl: inviteUrlFor(rsvpToken),
+    rsvpMessage: '',
   }
   await db.collection(COLLECTIONS.guests).doc(String(id)).set({
     name: guest.name,
@@ -163,6 +197,7 @@ export async function createGuest(
     group: guest.group,
     email: guest.email,
     overnight: guest.overnight,
+    rsvpToken,
   })
   return guest
 }
@@ -186,6 +221,38 @@ export async function updateGuest(
 
   await ref.update(updates)
   return guestFromDoc(id, { ...data, ...updates })
+}
+
+async function findGuestRefByRsvpToken(token: string) {
+  const snap = await db
+    .collection(COLLECTIONS.guests)
+    .where('rsvpToken', '==', token)
+    .limit(1)
+    .get()
+  return snap.empty ? null : snap.docs[0]
+}
+
+export async function getGuestByRsvpToken(token: string): Promise<Guest | null> {
+  const doc = await findGuestRefByRsvpToken(token)
+  return doc ? guestFromDoc(Number(doc.id), doc.data()) : null
+}
+
+/** Records a guest's reply from the RSVP site. */
+export async function submitGuestRsvp(
+  token: string,
+  response: { attending: boolean; stayingOvernight: boolean; message: string },
+): Promise<Guest | null> {
+  const doc = await findGuestRefByRsvpToken(token)
+  if (!doc) return null
+
+  const updates = {
+    rsvp: response.attending ? 'yes' : 'no',
+    overnight: response.attending && response.stayingOvernight,
+    rsvpMessage: response.message,
+    rsvpRespondedAt: new Date().toISOString(),
+  }
+  await doc.ref.update(updates)
+  return guestFromDoc(Number(doc.id), { ...doc.data(), ...updates })
 }
 
 export async function getTasks(): Promise<Task[]> {

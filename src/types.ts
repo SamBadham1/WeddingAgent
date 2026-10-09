@@ -5,6 +5,9 @@ export interface Guest {
   group: string
   email: string
   overnight: boolean
+  rsvpToken: string
+  inviteUrl: string
+  rsvpMessage: string
 }
 
 export interface Task {

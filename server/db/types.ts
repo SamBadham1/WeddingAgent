@@ -5,6 +5,11 @@ export interface Guest {
   group: string
   email: string
   overnight: boolean
+  /** Unguessable token used in the guest's RSVP invite link */
+  rsvpToken: string
+  inviteUrl: string
+  /** Note left by the guest on the RSVP site */
+  rsvpMessage: string
 }
 
 export interface Task {
