@@ -1,4 +1,57 @@
-import type { BudgetItem, Guest, Task, WeddingSummary } from './types'
+import type {
+  BudgetItem,
+  DispatchResult,
+  EmailTemplate,
+  Guest,
+  OutboxEmail,
+  RenderedEmail,
+  StageResult,
+  Task,
+  WeddingSummary,
+} from './types'
+
+const ADMIN_TOKEN_KEY = 'weddingAgent.adminToken'
+/** Fired on window when the API rejects the stored admin token. */
+export const ADMIN_TOKEN_REQUIRED_EVENT = 'admin-token-required'
+
+export function getAdminToken(): string {
+  try {
+    return localStorage.getItem(ADMIN_TOKEN_KEY) ?? ''
+  } catch {
+    return ''
+  }
+}
+
+export function setAdminToken(token: string): void {
+  try {
+    if (token) localStorage.setItem(ADMIN_TOKEN_KEY, token)
+    else localStorage.removeItem(ADMIN_TOKEN_KEY)
+  } catch {
+    // storage unavailable (private window) — token lasts only for this request
+  }
+}
+
+// Every dashboard call goes through here so it carries the admin token
+function fetch(input: string, init: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(init.headers)
+  const token = getAdminToken()
+  if (token) headers.set('x-admin-token', token)
+  return window.fetch(input, { ...init, headers }).then((res) => {
+    if (res.status === 401) {
+      setAdminToken('')
+      window.dispatchEvent(new Event(ADMIN_TOKEN_REQUIRED_EVENT))
+    }
+    return res
+  })
+}
+
+function postJson(url: string, body?: unknown, method = 'POST') {
+  return fetch(url, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+}
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -92,4 +145,32 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message }),
     }).then((r) => json<{ reply: string }>(r)),
+  getEmailTemplates: () => fetch('/api/email/templates').then((r) => json<EmailTemplate[]>(r)),
+  createEmailTemplate: (fields: Pick<EmailTemplate, 'name' | 'subject' | 'body'>) =>
+    postJson('/api/email/templates', fields).then((r) => json<EmailTemplate>(r)),
+  updateEmailTemplate: (
+    id: string,
+    patch: Partial<Pick<EmailTemplate, 'name' | 'subject' | 'body'>>,
+  ) => postJson(`/api/email/templates/${id}`, patch, 'PATCH').then((r) => json<EmailTemplate>(r)),
+  deleteEmailTemplate: (id: string) =>
+    fetch(`/api/email/templates/${id}`, { method: 'DELETE' }).then((r) => {
+      if (!r.ok) return json<never>(r)
+    }),
+  previewEmail: (subject: string, body: string, guestId?: number) =>
+    postJson('/api/email/preview', { subject, body, guestId }).then((r) => json<RenderedEmail>(r)),
+  stageEmails: (
+    templateId: string,
+    guestIds: number[],
+    options: { sendAfter?: string; skipAlreadySent?: boolean } = {},
+  ) =>
+    postJson('/api/email/stage', { templateId, guestIds, ...options }).then((r) =>
+      json<StageResult>(r),
+    ),
+  getOutbox: () =>
+    fetch('/api/email/outbox').then((r) => json<{ dryRun: boolean; emails: OutboxEmail[] }>(r)),
+  cancelEmail: (id: string) =>
+    postJson(`/api/email/outbox/${id}/cancel`).then((r) => json<OutboxEmail>(r)),
+  retryEmail: (id: string) =>
+    postJson(`/api/email/outbox/${id}/retry`).then((r) => json<OutboxEmail>(r)),
+  dispatchEmails: () => postJson('/api/email/dispatch').then((r) => json<DispatchResult>(r)),
 }

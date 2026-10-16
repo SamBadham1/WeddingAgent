@@ -43,8 +43,11 @@ steps:
       # server can reach the named Firestore database without relying on metadata.
       - --set-env-vars
       # RSVP_SITE_URL builds guest invite links and is the only origin allowed
-      # to call the public /api/rsvp routes.
-      - GOOGLE_CLOUD_PROJECT=$PROJECT_ID,FIRESTORE_DATABASE_ID=wedding,RSVP_SITE_URL=${_RSVP_SITE_URL}
+      # to call the public /api/rsvp routes. The rest configure guest emails.
+      - GOOGLE_CLOUD_PROJECT=$PROJECT_ID,FIRESTORE_DATABASE_ID=wedding,RSVP_SITE_URL=${_RSVP_SITE_URL},GMAIL_SENDER=${_GMAIL_SENDER}
+      # Secret Manager secrets (create them first, see DEPLOY.md "Guest emails").
+      - --set-secrets
+      - ADMIN_TOKEN=ADMIN_TOKEN:latest,GMAIL_APP_PASSWORD=GMAIL_APP_PASSWORD:latest
 
 images:
   - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA
@@ -56,6 +59,8 @@ substitutions:
   _SERVICE: wedding-agent
   # Public URL of the wedding-rsvp Cloud Run service, e.g. https://wedding-rsvp-xxxxx.a.run.app
   _RSVP_SITE_URL: https://wedding-rsvp-954805523687.australia-southeast1.run.app
+  # From line for guest emails; the address is also the SMTP login for GMAIL_APP_PASSWORD
+  _GMAIL_SENDER: Sam & Sam <samsbadhamgray@gmail.com>
 
 options:
   logging: CLOUD_LOGGING_ONLY

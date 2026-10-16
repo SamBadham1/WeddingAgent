@@ -28,6 +28,8 @@ export const COLLECTIONS = {
   tasks: 'tasks',
   budget: 'budget',
   counters: 'counters',
+  emailTemplates: 'emailTemplates',
+  emailOutbox: 'emailOutbox',
 } as const
 
 export const WEDDING_DOC_ID = 'default'

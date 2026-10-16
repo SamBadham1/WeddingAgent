@@ -21,7 +21,7 @@ const SEED_WEDDING: Wedding = {
   totalBudget: 30000,
 }
 
-const SEED_GUESTS: Omit<Guest, 'id' | 'rsvpToken' | 'inviteUrl' | 'rsvpMessage'>[] = [
+const SEED_GUESTS: Omit<Guest, 'id' | 'rsvpToken' | 'inviteUrl' | 'rsvpMessage' | 'lastEmailedAt'>[] = [
   { name: 'Jordan Rivera', rsvp: 'yes', group: 'Family', email: 'jordan@example.com', overnight: true },
   { name: 'Taylor Chen', rsvp: 'pending', group: 'Friends', email: '', overnight: false },
   { name: 'Morgan Patel', rsvp: 'no', group: 'Work', email: 'morgan@example.com', overnight: false },
@@ -69,6 +69,7 @@ function guestFromDoc(id: number, data: DocumentData): Guest {
     rsvpToken,
     inviteUrl: rsvpToken ? inviteUrlFor(rsvpToken) : '',
     rsvpMessage: typeof data.rsvpMessage === 'string' ? data.rsvpMessage : '',
+    lastEmailedAt: typeof data.lastEmailedAt === 'string' ? data.lastEmailedAt : '',
   }
 }
 
@@ -190,6 +191,7 @@ export async function createGuest(
     rsvpToken,
     inviteUrl: inviteUrlFor(rsvpToken),
     rsvpMessage: '',
+    lastEmailedAt: '',
   }
   await db.collection(COLLECTIONS.guests).doc(String(id)).set({
     name: guest.name,

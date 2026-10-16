@@ -260,6 +260,8 @@ connection string or Secret Manager entry is required.
 | `tasks` | numeric string | `title`, `done` |
 | `budget` | numeric string | `category`, `estimated`, `actual` |
 | `counters` | `ids` | `guestId`, `taskId`, `budgetId` |
+| `emailTemplates` | auto ID | `name`, `subject`, `body`, `createdAt`, `updatedAt` |
+| `emailOutbox` | auto ID | `guestId`, `to`, `templateId`, `subject`, `text`, `html`, `status`, `sendAfter`, `sentAt`, `attempts`, `error` |
 
 ### Local development with the emulator
 
@@ -270,6 +272,109 @@ export GOOGLE_CLOUD_PROJECT=local-wedding-agent
 export FIRESTORE_DATABASE_ID=wedding
 npm run dev
 ```
+
+---
+
+## Guest emails
+
+The dashboard's **Emails** page renders a template for each selected guest and
+stages the result in the `emailOutbox` collection. Clicking **Send queued now**
+sends the due `queued` emails through **Gmail SMTP** (`smtp.gmail.com:465`),
+signed in to the wedding Gmail account with an **app password**. It's free. A
+personal Gmail account can send to about 500 recipients a day, and
+`EMAIL_MAX_PER_RUN` caps each send at 400.
+
+### 1. Gmail account + app password
+
+Everything in this step is done **signed in as the wedding Gmail account**
+(the address emails come *from*). No Cloud Console setup is needed.
+
+#### 1.1 Create the wedding Gmail account
+
+1. Go to <https://accounts.google.com/signup> and create the account, e.g.
+   `our.wedding@gmail.com`. Use a private browser window so you aren't signed
+   in to your usual account at the same time.
+2. Optional: set the account's name and profile photo. Some mail apps (e.g.
+   Gmail) show the photo next to your emails.
+
+The *From* line guests see comes from `GMAIL_SENDER`
+(`Sam & Sam <our.wedding@gmail.com>`). The display name can be anything you
+like. The address inside `<…>` is also the SMTP login, so it must be this
+account.
+
+#### 1.2 Turn on 2-Step Verification
+
+App passwords only exist on accounts with 2-Step Verification.
+
+1. Open <https://myaccount.google.com/security> → **2-Step Verification** →
+   **Get started**.
+2. Add a phone number (or an authenticator app) and finish the setup.
+
+#### 1.3 Create an app password
+
+1. Open <https://myaccount.google.com/apppasswords>. The page isn't linked
+   from the menus, so use the URL directly. Sign in again if asked.
+2. *App name*: e.g. `wedding-agent` → **Create**.
+3. Google shows a 16-letter password in four groups, e.g.
+   `abcd efgh ijkl mnop`. **Copy it now; it's only shown once.** The spaces
+   don't matter (the server strips them).
+
+To test sending locally, put it in `.env`:
+
+```bash
+GMAIL_SENDER=Sam & Sam <our.wedding@gmail.com>
+GMAIL_APP_PASSWORD=abcdefghijklmnop
+EMAIL_DRY_RUN=false
+```
+
+Troubleshooting:
+
+- **"The setting you are looking for is not available for your account"** on
+  the app passwords page: 2-Step Verification isn't on yet (1.2), or the
+  account only has a passkey. Add a phone or authenticator method as well.
+- **`535-5.7.8 Username and Password not accepted`** when sending: the
+  address in `GMAIL_SENDER` isn't the account that created the app password,
+  or the password was copied wrongly. Create a new one.
+
+Treat the app password like a real password: anyone who has it can send
+email as the wedding account. It stops working if you revoke it on the app
+passwords page or change the account's password. If that happens, create a
+new one and add it as a new secret version (below).
+
+### 2. Secrets
+
+Run these as **your usual account** (the GCP project owner):
+
+```bash
+gcloud services enable secretmanager.googleapis.com --project="$PROJECT_ID"
+
+printf '%s' "$(openssl rand -base64 24)" | gcloud secrets create ADMIN_TOKEN --data-file=- --project="$PROJECT_ID"
+printf '%s' "abcdefghijklmnop"           | gcloud secrets create GMAIL_APP_PASSWORD --data-file=- --project="$PROJECT_ID"
+
+# The Cloud Run runtime service account must be able to read them
+PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
+RUN_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+for s in ADMIN_TOKEN GMAIL_APP_PASSWORD; do
+  gcloud secrets add-iam-policy-binding "$s" --project="$PROJECT_ID" \
+    --member="serviceAccount:${RUN_SA}" --role="roles/secretmanager.secretAccessor"
+done
+
+# Replace a value later (e.g. a new app password), then redeploy to pick it up:
+printf '%s' "newpasswordhere" | gcloud secrets versions add GMAIL_APP_PASSWORD --data-file=- --project="$PROJECT_ID"
+
+# Read the dashboard password back when you need it:
+gcloud secrets versions access latest --secret=ADMIN_TOKEN --project="$PROJECT_ID"
+```
+
+Then set `_GMAIL_SENDER` in `cloudbuild.yaml` (or as a trigger substitution)
+and redeploy. **The deploy fails if either secret is missing.**
+
+### 3. Send a test
+
+Stage one email to your own address on the **Emails** page, click **Send
+queued now**, and check that it arrives from the wedding Gmail account and the
+RSVP button opens the RSVP site. The email also appears in the wedding
+account's **Sent** folder.
 
 ---
 

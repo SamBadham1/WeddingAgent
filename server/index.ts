@@ -14,6 +14,7 @@ import {
   getGuests,
   getPlanningContext,
   getTasks,
+  getWedding,
   getWeddingSummary,
   seedIfEmpty,
   submitGuestRsvp,
@@ -23,7 +24,22 @@ import {
   deleteTask,
   updateWeddingTotalBudget,
 } from './db/store.js'
+import {
+  cancelOutbox,
+  createTemplate,
+  deleteTemplate,
+  dispatchQueued,
+  getOutbox,
+  getTemplate,
+  getTemplates,
+  retryOutbox,
+  stageEmails,
+  updateTemplate,
+} from './db/emails.js'
 import type { Guest } from './db/types.js'
+import { requireAdmin } from './auth.js'
+import { isDryRun } from './email/gmail.js'
+import { renderEmail } from './email/render.js'
 
 const app = express()
 app.use(express.json())
@@ -106,6 +122,16 @@ function asyncHandler(
 
 app.get('/api/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', service: 'wedding-agent', time: new Date().toISOString() })
+})
+
+// Everything under /api except health and the public RSVP routes is for the
+// couple's dashboard only.
+app.use('/api', (req: Request, res: Response, next: NextFunction) => {
+  if (req.path === '/rsvp' || req.path.startsWith('/rsvp/')) {
+    next()
+    return
+  }
+  requireAdmin(req, res, next)
 })
 
 app.get(
@@ -462,6 +488,164 @@ app.post(
     res.json({ reply: planningReply(message, ctx) })
   }),
 )
+
+// ---------------------------------------------------------------------------
+// Guest emails: templates are rendered per guest into the outbox, and the
+// outbox is sent when the couple clicks "Send queued now".
+// ---------------------------------------------------------------------------
+
+const MAX_TEMPLATE_FIELD = { name: 200, subject: 300, body: 20000 }
+const EMAIL_MAX_PER_RUN = Number(process.env.EMAIL_MAX_PER_RUN ?? 400)
+
+function templateFields(body: Record<string, unknown>, partial: boolean) {
+  const fields: Partial<Record<'name' | 'subject' | 'body', string>> = {}
+  for (const key of ['name', 'subject', 'body'] as const) {
+    const value = body[key]
+    if (value === undefined && partial) continue
+    if (typeof value !== 'string' || value.trim() === '') {
+      return { error: `${key} is required` }
+    }
+    if (value.length > MAX_TEMPLATE_FIELD[key]) {
+      return { error: `${key} is too long` }
+    }
+    fields[key] = key === 'body' ? value : value.trim()
+  }
+  return { fields }
+}
+
+app.get(
+  '/api/email/templates',
+  asyncHandler(async (_req, res) => {
+    res.json(await getTemplates())
+  }),
+)
+
+app.post(
+  '/api/email/templates',
+  asyncHandler(async (req, res) => {
+    const parsed = templateFields(req.body ?? {}, false)
+    if ('error' in parsed) {
+      res.status(400).json({ error: parsed.error })
+      return
+    }
+    res.status(201).json(await createTemplate(parsed.fields as Required<typeof parsed.fields>))
+  }),
+)
+
+app.patch(
+  '/api/email/templates/:id',
+  asyncHandler(async (req, res) => {
+    const parsed = templateFields(req.body ?? {}, true)
+    if ('error' in parsed) {
+      res.status(400).json({ error: parsed.error })
+      return
+    }
+    const template = await updateTemplate(req.params.id, parsed.fields)
+    if (!template) {
+      res.status(404).json({ error: 'template not found' })
+      return
+    }
+    res.json(template)
+  }),
+)
+
+app.delete(
+  '/api/email/templates/:id',
+  asyncHandler(async (req, res) => {
+    const deleted = await deleteTemplate(req.params.id)
+    if (!deleted) {
+      res.status(404).json({ error: 'template not found' })
+      return
+    }
+    res.status(204).end()
+  }),
+)
+
+app.post(
+  '/api/email/preview',
+  asyncHandler(async (req, res) => {
+    const { subject, body, guestId } = req.body ?? {}
+    if (typeof subject !== 'string' || typeof body !== 'string') {
+      res.status(400).json({ error: 'subject and body are required' })
+      return
+    }
+    const [wedding, guests] = await Promise.all([getWedding(), getGuests()])
+    const guest = guests.find((g) => g.id === Number(guestId)) ?? {
+      name: 'Alex Example',
+      inviteUrl: `${process.env.RSVP_SITE_URL || 'http://localhost:5174'}/?g=example`,
+    }
+    res.json(renderEmail({ subject, body }, guest, wedding))
+  }),
+)
+
+app.post(
+  '/api/email/stage',
+  asyncHandler(async (req, res) => {
+    const { templateId, guestIds, sendAfter, skipAlreadySent } = req.body ?? {}
+    if (typeof templateId !== 'string' || !templateId) {
+      res.status(400).json({ error: 'templateId is required' })
+      return
+    }
+    if (!Array.isArray(guestIds) || guestIds.length === 0 || !guestIds.every(Number.isInteger)) {
+      res.status(400).json({ error: 'guestIds must be a non-empty array of guest ids' })
+      return
+    }
+    let sendAfterIso: string | undefined
+    if (sendAfter !== undefined && sendAfter !== '') {
+      const parsed = new Date(sendAfter)
+      if (typeof sendAfter !== 'string' || Number.isNaN(parsed.getTime())) {
+        res.status(400).json({ error: 'sendAfter must be a date' })
+        return
+      }
+      sendAfterIso = parsed.toISOString()
+    }
+    if (!(await getTemplate(templateId))) {
+      res.status(404).json({ error: 'template not found' })
+      return
+    }
+    const result = await stageEmails(templateId, guestIds, {
+      sendAfter: sendAfterIso,
+      skipAlreadySent: skipAlreadySent !== false,
+    })
+    res.status(201).json(result)
+  }),
+)
+
+app.get(
+  '/api/email/outbox',
+  asyncHandler(async (_req, res) => {
+    res.json({ dryRun: isDryRun(), emails: await getOutbox() })
+  }),
+)
+
+for (const [action, fn] of [
+  ['cancel', cancelOutbox],
+  ['retry', retryOutbox],
+] as const) {
+  app.post(
+    `/api/email/outbox/:id/${action}`,
+    asyncHandler(async (req, res) => {
+      const result = await fn(req.params.id)
+      if (result === null) {
+        res.status(404).json({ error: 'email not found' })
+        return
+      }
+      if (result === 'conflict') {
+        res.status(409).json({ error: `email can't be ${action === 'cancel' ? 'cancelled' : 'retried'} in its current state` })
+        return
+      }
+      res.json(result)
+    }),
+  )
+}
+
+app.post(
+  '/api/email/dispatch',
+  asyncHandler(async (_req, res) => {
+    res.json(await dispatchQueued(EMAIL_MAX_PER_RUN))
+  }),
+)
+
 
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
   console.error('[wedding-agent] request error:', err)

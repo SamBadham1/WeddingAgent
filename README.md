@@ -72,6 +72,17 @@ On Windows (PowerShell), copy `.env.example` to `.env` instead of `cp`.
 | PATCH  | `/api/tasks/:id`     | Toggle a task's done state            |
 | GET    | `/api/budget`        | List budget line items               |
 | POST   | `/api/agent`         | Ask the planning agent a question    |
+| GET/POST | `/api/email/templates` | List / create email templates     |
+| PATCH/DELETE | `/api/email/templates/:id` | Edit / delete a template   |
+| POST   | `/api/email/preview` | Render a template for a guest        |
+| POST   | `/api/email/stage`   | Queue a template for chosen guests   |
+| GET    | `/api/email/outbox`  | List staged/sent emails              |
+| POST   | `/api/email/outbox/:id/cancel`, `/retry` | Cancel or requeue one email |
+| POST   | `/api/email/dispatch` | Send due queued emails now          |
+
+When `ADMIN_TOKEN` is set, every `/api` route except `/api/health` and the
+public `/api/rsvp/*` routes needs it in the `x-admin-token` header. See
+[DEPLOY.md](DEPLOY.md#guest-emails) for setting up Gmail sending.
 
 ## Production build
 

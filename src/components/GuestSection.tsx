@@ -116,6 +116,11 @@ function GuestRow({
           <span className="guest-name">{guest.name}</span>
           <span className="muted">· {guest.group}</span>
           {guest.overnight && <span className="pill">Overnight</span>}
+          {guest.lastEmailedAt && (
+            <span className="pill" title={`Last emailed ${new Date(guest.lastEmailedAt).toLocaleString()}`}>
+              Emailed
+            </span>
+          )}
         </div>
         {guest.email ? <p className="guest-email muted">{guest.email}</p> : null}
         {guest.rsvpMessage ? <p className="guest-email muted">“{guest.rsvpMessage}”</p> : null}
