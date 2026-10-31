@@ -1,26 +1,15 @@
 import type { DocumentData } from '@google-cloud/firestore'
 import { sendEmail } from '../email/gmail.js'
-import { renderEmail } from '../email/render.js'
+import { INVITE_TEMPLATE_ID, renderInviteEmail } from '../email/render.js'
 import { COLLECTIONS, db } from './firestore.js'
 import { getGuests, getWedding } from './store.js'
-import type { EmailTemplate, OutboxEmail, OutboxStatus } from './types.js'
+import type { OutboxEmail, OutboxStatus } from './types.js'
 
 const MAX_SEND_ATTEMPTS = 3
 const SEND_GAP_MS = 250
 
 function str(value: unknown): string {
   return typeof value === 'string' ? value : ''
-}
-
-function templateFromDoc(id: string, data: DocumentData): EmailTemplate {
-  return {
-    id,
-    name: str(data.name),
-    subject: str(data.subject),
-    body: str(data.body),
-    createdAt: str(data.createdAt),
-    updatedAt: str(data.updatedAt),
-  }
 }
 
 function outboxFromDoc(id: string, data: DocumentData): OutboxEmail {
@@ -44,56 +33,6 @@ function outboxFromDoc(id: string, data: DocumentData): OutboxEmail {
 }
 
 // ---------------------------------------------------------------------------
-// Templates
-// ---------------------------------------------------------------------------
-
-export async function getTemplates(): Promise<EmailTemplate[]> {
-  const snap = await db.collection(COLLECTIONS.emailTemplates).get()
-  return snap.docs
-    .map((doc) => templateFromDoc(doc.id, doc.data()))
-    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-}
-
-export async function getTemplate(id: string): Promise<EmailTemplate | null> {
-  const snap = await db.collection(COLLECTIONS.emailTemplates).doc(id).get()
-  return snap.exists ? templateFromDoc(snap.id, snap.data()!) : null
-}
-
-export async function createTemplate(
-  fields: Pick<EmailTemplate, 'name' | 'subject' | 'body'>,
-): Promise<EmailTemplate> {
-  const now = new Date().toISOString()
-  const data = { ...fields, createdAt: now, updatedAt: now }
-  const ref = await db.collection(COLLECTIONS.emailTemplates).add(data)
-  return templateFromDoc(ref.id, data)
-}
-
-export async function updateTemplate(
-  id: string,
-  patch: Partial<Pick<EmailTemplate, 'name' | 'subject' | 'body'>>,
-): Promise<EmailTemplate | null> {
-  const ref = db.collection(COLLECTIONS.emailTemplates).doc(id)
-  const snap = await ref.get()
-  if (!snap.exists) return null
-
-  const updates: Record<string, string> = { updatedAt: new Date().toISOString() }
-  if (typeof patch.name === 'string') updates.name = patch.name
-  if (typeof patch.subject === 'string') updates.subject = patch.subject
-  if (typeof patch.body === 'string') updates.body = patch.body
-
-  await ref.update(updates)
-  return templateFromDoc(id, { ...snap.data(), ...updates })
-}
-
-export async function deleteTemplate(id: string): Promise<boolean> {
-  const ref = db.collection(COLLECTIONS.emailTemplates).doc(id)
-  const snap = await ref.get()
-  if (!snap.exists) return false
-  await ref.delete()
-  return true
-}
-
-// ---------------------------------------------------------------------------
 // Outbox
 // ---------------------------------------------------------------------------
 
@@ -102,19 +41,16 @@ export interface StageResult {
   skipped: { guestId: number; name: string; reason: string }[]
 }
 
-/** Renders the template for each guest and queues the result for the dispatcher. */
+/** Renders the invite for each guest and queues the result for the dispatcher. */
 export async function stageEmails(
-  templateId: string,
   guestIds: number[],
   options: { sendAfter?: string; skipAlreadySent?: boolean } = {},
-): Promise<StageResult | null> {
-  const template = await getTemplate(templateId)
-  if (!template) return null
-
+): Promise<StageResult> {
+  // Every outbox email counts, so guests invited with the old templates are skipped too
   const [wedding, guests, existing] = await Promise.all([
     getWedding(),
     getGuests(),
-    db.collection(COLLECTIONS.emailOutbox).where('templateId', '==', templateId).get(),
+    db.collection(COLLECTIONS.emailOutbox).get(),
   ])
 
   const alreadyHas = new Set(
@@ -138,17 +74,17 @@ export async function stageEmails(
       result.skipped.push({
         guestId: guest.id,
         name: guest.name,
-        reason: 'already queued or sent this template',
+        reason: 'already has an invite queued or sent',
       })
       continue
     }
 
-    const rendered = renderEmail(template, guest, wedding)
+    const rendered = renderInviteEmail(guest, wedding)
     batch.set(db.collection(COLLECTIONS.emailOutbox).doc(), {
       guestId: guest.id,
       guestName: guest.name,
       to: guest.email,
-      templateId,
+      templateId: INVITE_TEMPLATE_ID,
       ...rendered,
       status: 'queued',
       sendAfter,
@@ -185,6 +121,17 @@ async function transitionOutbox(
     tx.update(ref, updates)
     return outboxFromDoc(id, { ...snap.data(), ...updates })
   })
+}
+
+/** Cancels a deleted guest's queued emails so they never send; sent history is kept. */
+export async function cancelQueuedForGuest(guestId: number): Promise<number> {
+  const snap = await db.collection(COLLECTIONS.emailOutbox).where('guestId', '==', guestId).get()
+  const queued = snap.docs.filter((doc) => doc.data().status === 'queued')
+  if (queued.length === 0) return 0
+  const batch = db.batch()
+  for (const doc of queued) batch.update(doc.ref, { status: 'cancelled' })
+  await batch.commit()
+  return queued.length
 }
 
 export function cancelOutbox(id: string) {

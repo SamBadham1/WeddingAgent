@@ -15,6 +15,10 @@ export interface Task {
   id: number
   title: string
   done: boolean
+  /** Free-text instructions or follow-ups for the task */
+  notes: string
+  /** Free-form tags; the label picker offers every label used on any task */
+  labels: string[]
 }
 
 export interface BudgetItem {
@@ -35,15 +39,6 @@ export interface WeddingSummary {
 export interface AgentMessage {
   role: 'user' | 'agent'
   text: string
-}
-
-export interface EmailTemplate {
-  id: string
-  name: string
-  subject: string
-  body: string
-  createdAt: string
-  updatedAt: string
 }
 
 export type OutboxStatus = 'queued' | 'sending' | 'sent' | 'failed' | 'cancelled'

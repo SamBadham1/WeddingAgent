@@ -1,6 +1,29 @@
 import type { Guest, Wedding } from '../db/types.js'
 
-export const PLACEHOLDERS = ['name', 'firstName', 'inviteUrl', 'coupleNames', 'date'] as const
+// The one guest email: the invitation, laid out like the wedding website's hero
+// (weddingWebsite/DesignFiles/wedding-website/design-system). Email clients ignore
+// clip-path and CSS variables, so the clipped corners are dropped and tokens are inlined.
+
+/** Stored on outbox records so sent invites can be told apart from older template emails. */
+export const INVITE_TEMPLATE_ID = 'invite'
+
+const VENUE = 'Man O War, Waiheke'
+
+const COLOR = {
+  forest: '#24382a',
+  moss: '#5b6f45',
+  sage: '#b9c4ab',
+  lace: '#f6f4ee',
+  surfaceRaised: '#fffdf8',
+  ink: '#1f3024',
+  inkMuted: '#56604f',
+  line: '#d5d0c2',
+}
+
+const SCRIPT = `'Great Vibes','Brush Script MT','Segoe Script',cursive`
+const SANS = `Montserrat,'Helvetica Neue',Arial,sans-serif`
+const FONTS_URL =
+  'https://fonts.googleapis.com/css2?family=Great+Vibes&family=Montserrat:wght@300;400;500&display=swap'
 
 export interface RenderedEmail {
   subject: string
@@ -8,16 +31,28 @@ export interface RenderedEmail {
   html: string
 }
 
-function formatWeddingDate(iso: string): string {
+function ordinal(day: number): string {
+  if (day % 100 >= 11 && day % 100 <= 13) return 'th'
+  return ['th', 'st', 'nd', 'rd'][day % 10] ?? 'th'
+}
+
+/** "Saturday April 17th 2027" for display lines, "Saturday 17 April 2027" for running text. */
+function weddingDates(iso: string) {
   const d = new Date(`${iso}T00:00:00Z`)
-  if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleDateString('en-NZ', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-    timeZone: 'UTC',
-  })
+  if (Number.isNaN(d.getTime())) return { displayHtml: escapeHtml(iso), text: iso }
+  const part = (options: Intl.DateTimeFormatOptions) =>
+    d.toLocaleDateString('en-NZ', { ...options, timeZone: 'UTC' })
+  const weekday = part({ weekday: 'long' })
+  const month = part({ month: 'long' })
+  const day = d.getUTCDate()
+  const year = d.getUTCFullYear()
+  const suffix = ordinal(day)
+  return {
+    displayHtml:
+      `${weekday} ${month} ${day}` +
+      `<sup style="font-size:0.65em;text-transform:lowercase;">${suffix}</sup> ${year}`,
+    text: `${weekday} ${day} ${month} ${year}`,
+  }
 }
 
 function escapeHtml(value: string): string {
@@ -29,70 +64,84 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;')
 }
 
-function fill(template: string, values: Record<string, string>): string {
-  return template.replace(/\{\{\s*(\w+)\s*\}\}/g, (match, key: string) =>
-    key in values ? values[key] : match,
-  )
+/** "Samuel & Samantha" -> ["Samuel &", "Samantha"], the way the card sets the names. */
+function nameLines(coupleNames: string): string[] {
+  const i = coupleNames.indexOf('&')
+  if (i === -1) return [coupleNames]
+  return [coupleNames.slice(0, i + 1).trim(), coupleNames.slice(i + 1).trim()].filter(Boolean)
 }
 
-const URL_PATTERN = /(https?:\/\/[^\s<]+)/g
-
-/** Escapes a rendered line and turns URLs into links; the invite URL becomes a button. */
-function lineToHtml(line: string, inviteUrl: string): string {
-  return line
-    .split(URL_PATTERN)
-    .map((part, i) => {
-      if (i % 2 === 0) return escapeHtml(part)
-      const href = escapeHtml(part)
-      if (inviteUrl && part === inviteUrl) {
-        return (
-          `<a href="${href}" style="display:inline-block;background:#c25e7a;color:#ffffff;` +
-          `text-decoration:none;font-weight:600;padding:12px 24px;border-radius:10px;">RSVP here</a>`
-        )
-      }
-      return `<a href="${href}" style="color:#c25e7a;">${href}</a>`
-    })
-    .join('')
+function paragraph(html: string): string {
+  return `<p style="margin:0 0 20px;font-family:${SANS};font-size:16px;line-height:26px;color:${COLOR.ink};">${html}</p>`
 }
 
-function bodyToHtml(text: string, inviteUrl: string): string {
-  const paragraphs = text
-    .split(/\n\s*\n/)
-    .map((p) => p.trim())
-    .filter(Boolean)
-    .map(
-      (p) =>
-        `<p style="margin:0 0 16px;line-height:1.6;">` +
-        p
-          .split('\n')
-          .map((line) => lineToHtml(line, inviteUrl))
-          .join('<br>') +
-        `</p>`,
-    )
-    .join('')
-
-  return (
-    `<!doctype html><html><body style="margin:0;padding:24px;background:#faf7f5;">` +
-    `<div style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #ece5ea;` +
-    `border-radius:16px;padding:28px;font-family:Georgia,'Times New Roman',serif;color:#2c2431;font-size:16px;">` +
-    paragraphs +
-    `</div></body></html>`
-  )
-}
-
-export function renderEmail(
-  tpl: { subject: string; body: string },
+export function renderInviteEmail(
   guest: Pick<Guest, 'name' | 'inviteUrl'>,
   wedding: Pick<Wedding, 'coupleNames' | 'date'>,
 ): RenderedEmail {
-  const values: Record<string, string> = {
-    name: guest.name,
-    firstName: guest.name.trim().split(/\s+/)[0] ?? guest.name,
-    inviteUrl: guest.inviteUrl,
-    coupleNames: wedding.coupleNames,
-    date: formatWeddingDate(wedding.date),
-  }
-  const subject = fill(tpl.subject, values).replace(/[\r\n]+/g, ' ').trim()
-  const text = fill(tpl.body, values)
-  return { subject, text, html: bodyToHtml(text, guest.inviteUrl) }
+  const firstName = guest.name.trim().split(/\s+/)[0] || guest.name
+  const couple = wedding.coupleNames
+  const dates = weddingDates(wedding.date)
+  const venueName = VENUE.split(',')[0]
+  const venueArea = VENUE.split(',')[1]?.trim() ?? ''
+
+  const subject = `You're invited: ${couple}`.replace(/[\r\n]+/g, ' ')
+
+  const text = [
+    `Dear ${firstName},`,
+    `We're getting married, and we'd love you to be there. Join us at ${venueName} on ${venueArea} on ${dates.text}.`,
+    `Please let us know whether you can make it on your RSVP page:\n${guest.inviteUrl}`,
+    `The link is just for you, so please don't share it.`,
+    `Love,\n${couple}`,
+  ].join('\n\n')
+
+  const e = escapeHtml
+  const url = e(guest.inviteUrl)
+
+  const html =
+    `<!doctype html><html lang="en"><head><meta charset="utf-8">` +
+    `<meta name="viewport" content="width=device-width,initial-scale=1">` +
+    `<meta name="color-scheme" content="light only"><title>${e(subject)}</title>` +
+    `<link href="${FONTS_URL}" rel="stylesheet"></head>` +
+    `<body style="margin:0;padding:0;background:${COLOR.forest};">` +
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${COLOR.forest};">` +
+    `<tr><td align="center" style="padding:40px 16px;">` +
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;">` +
+    // Hero: two lace hairlines around the moss panel, as on the website
+    `<tr><td style="background:${COLOR.lace};padding:2px;">` +
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="background:${COLOR.forest};padding:6px;">` +
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="background:${COLOR.lace};padding:1px;">` +
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>` +
+    `<td align="center" style="background:${COLOR.moss};padding:48px 16px;color:${COLOR.lace};">` +
+    `<p style="margin:0 0 24px;font-family:${SANS};font-size:13px;line-height:20px;font-weight:500;letter-spacing:0.22em;text-transform:uppercase;color:${COLOR.lace};">You're invited</p>` +
+    `<h1 style="margin:0;font-family:${SCRIPT};font-size:60px;line-height:1.05;font-weight:400;color:${COLOR.lace};">` +
+    nameLines(couple).map(e).join('<br>') +
+    `</h1>` +
+    `<p style="margin:32px 0 8px;font-family:${SANS};font-size:15px;line-height:26px;font-weight:500;letter-spacing:0.12em;text-transform:uppercase;color:${COLOR.lace};">${dates.displayHtml}</p>` +
+    `<p style="margin:0;font-family:${SANS};font-size:15px;line-height:26px;font-weight:500;letter-spacing:0.12em;text-transform:uppercase;color:${COLOR.lace};">${e(VENUE)}</p>` +
+    `</td></tr></table></td></tr></table></td></tr></table></td></tr>` +
+    // Letter
+    `<tr><td style="background:${COLOR.surfaceRaised};padding:40px 32px;">` +
+    paragraph(`Dear ${e(firstName)},`) +
+    paragraph(
+      `We're getting married, and we'd love you to be there. Join us at ${e(venueName)} on ${e(venueArea)} on ${e(dates.text)}.`,
+    ) +
+    paragraph(`Please let us know whether you can make it.`) +
+    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:8px auto 28px;"><tr>` +
+    `<td style="background:${COLOR.forest};">` +
+    `<a href="${url}" style="display:inline-block;padding:16px 32px;font-family:${SANS};font-size:12px;line-height:16px;font-weight:500;letter-spacing:0.2em;text-transform:uppercase;color:${COLOR.lace};text-decoration:none;">RSVP</a>` +
+    `</td></tr></table>` +
+    `<p style="margin:0 0 28px;font-family:${SANS};font-size:14px;line-height:22px;color:${COLOR.inkMuted};text-align:center;">` +
+    `The link is just for you, so please don't share it. If the button doesn't work, copy this into your browser:<br>` +
+    `<a href="${url}" style="color:${COLOR.inkMuted};word-break:break-all;">${url}</a></p>` +
+    `<p style="margin:0;border-top:1px solid ${COLOR.line};padding-top:24px;font-family:${SANS};font-size:16px;line-height:26px;color:${COLOR.ink};">Love,</p>` +
+    `<p style="margin:0;font-family:${SCRIPT};font-size:36px;line-height:1.2;color:${COLOR.ink};">${e(couple)}</p>` +
+    `</td></tr>` +
+    // Footer
+    `<tr><td align="center" style="padding:24px 16px 0;font-family:${SANS};font-size:12px;line-height:16px;font-weight:500;letter-spacing:0.2em;text-transform:uppercase;color:${COLOR.sage};">` +
+    `${dates.displayHtml} &middot; ${e(VENUE)}` +
+    `</td></tr>` +
+    `</table></td></tr></table></body></html>`
+
+  return { subject, text, html }
 }

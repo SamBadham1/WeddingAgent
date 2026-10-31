@@ -21,25 +21,22 @@ import {
   updateBudgetItem,
   updateGuest,
   updateTask,
+  deleteGuest,
   deleteTask,
   updateWeddingTotalBudget,
 } from './db/store.js'
 import {
   cancelOutbox,
-  createTemplate,
-  deleteTemplate,
+  cancelQueuedForGuest,
   dispatchQueued,
   getOutbox,
-  getTemplate,
-  getTemplates,
   retryOutbox,
   stageEmails,
-  updateTemplate,
 } from './db/emails.js'
 import type { Guest } from './db/types.js'
 import { requireAdmin } from './auth.js'
 import { isDryRun } from './email/gmail.js'
-import { renderEmail } from './email/render.js'
+import { renderInviteEmail } from './email/render.js'
 
 const app = express()
 app.use(express.json())
@@ -93,7 +90,8 @@ function planningReply(
     }
     const next = openTasks[0]
     return (
-      `You have ${openTasks.length} open task(s). Next up: "${next.title}". Tackle that one next.`
+      `You have ${openTasks.length} open task(s). Next up: "${next.title}". Tackle that one next.` +
+      (next.notes ? ` Notes: ${next.notes}` : '')
     )
   }
 
@@ -326,6 +324,34 @@ app.post(
   }),
 )
 
+app.delete(
+  '/api/guests/:id',
+  asyncHandler(async (req, res) => {
+    const id = Number(req.params.id)
+    const deleted = await deleteGuest(id)
+    if (!deleted) {
+      res.status(404).json({ error: 'guest not found' })
+      return
+    }
+    await cancelQueuedForGuest(id)
+    res.status(204).send()
+  }),
+)
+
+// Trim, drop blanks and case-insensitive duplicates; null means the input wasn't a string array
+function parseLabels(value: unknown): string[] | null {
+  if (!Array.isArray(value) || !value.every((l) => typeof l === 'string')) return null
+  const seen = new Set<string>()
+  const labels: string[] = []
+  for (const raw of value as string[]) {
+    const label = raw.trim().slice(0, 40)
+    if (!label || seen.has(label.toLowerCase())) continue
+    seen.add(label.toLowerCase())
+    labels.push(label)
+  }
+  return labels
+}
+
 app.get(
   '/api/tasks',
   asyncHandler(async (_req, res) => {
@@ -336,12 +362,21 @@ app.get(
 app.post(
   '/api/tasks',
   asyncHandler(async (req, res) => {
-    const { title } = req.body ?? {}
+    const { title, notes, labels } = req.body ?? {}
     if (typeof title !== 'string' || title.trim() === '') {
       res.status(400).json({ error: 'title is required' })
       return
     }
-    const task = await createTask(title.trim())
+    if (notes !== undefined && typeof notes !== 'string') {
+      res.status(400).json({ error: 'notes must be a string' })
+      return
+    }
+    const parsedLabels = labels === undefined ? [] : parseLabels(labels)
+    if (!parsedLabels) {
+      res.status(400).json({ error: 'labels must be an array of strings' })
+      return
+    }
+    const task = await createTask(title.trim(), notes?.trim() ?? '', parsedLabels)
     res.status(201).json(task)
   }),
 )
@@ -350,7 +385,7 @@ app.patch(
   '/api/tasks/:id',
   asyncHandler(async (req, res) => {
     const id = Number(req.params.id)
-    const { title, done } = req.body ?? {}
+    const { title, done, notes, labels } = req.body ?? {}
     const patch: Parameters<typeof updateTask>[1] = {}
 
     if (title !== undefined) {
@@ -366,6 +401,21 @@ app.patch(
         return
       }
       patch.done = done
+    }
+    if (notes !== undefined) {
+      if (typeof notes !== 'string') {
+        res.status(400).json({ error: 'notes must be a string' })
+        return
+      }
+      patch.notes = notes.trim()
+    }
+    if (labels !== undefined) {
+      const parsedLabels = parseLabels(labels)
+      if (!parsedLabels) {
+        res.status(400).json({ error: 'labels must be an array of strings' })
+        return
+      }
+      patch.labels = parsedLabels
     }
 
     if (Object.keys(patch).length === 0) {
@@ -490,102 +540,29 @@ app.post(
 )
 
 // ---------------------------------------------------------------------------
-// Guest emails: templates are rendered per guest into the outbox, and the
+// Guest emails: the fixed invite is rendered per guest into the outbox, and the
 // outbox is sent when the couple clicks "Send queued now".
 // ---------------------------------------------------------------------------
 
-const MAX_TEMPLATE_FIELD = { name: 200, subject: 300, body: 20000 }
 const EMAIL_MAX_PER_RUN = Number(process.env.EMAIL_MAX_PER_RUN ?? 400)
 
-function templateFields(body: Record<string, unknown>, partial: boolean) {
-  const fields: Partial<Record<'name' | 'subject' | 'body', string>> = {}
-  for (const key of ['name', 'subject', 'body'] as const) {
-    const value = body[key]
-    if (value === undefined && partial) continue
-    if (typeof value !== 'string' || value.trim() === '') {
-      return { error: `${key} is required` }
-    }
-    if (value.length > MAX_TEMPLATE_FIELD[key]) {
-      return { error: `${key} is too long` }
-    }
-    fields[key] = key === 'body' ? value : value.trim()
-  }
-  return { fields }
-}
-
+// Shows the invite exactly as a guest (or a sample guest) will receive it
 app.get(
-  '/api/email/templates',
-  asyncHandler(async (_req, res) => {
-    res.json(await getTemplates())
-  }),
-)
-
-app.post(
-  '/api/email/templates',
-  asyncHandler(async (req, res) => {
-    const parsed = templateFields(req.body ?? {}, false)
-    if ('error' in parsed) {
-      res.status(400).json({ error: parsed.error })
-      return
-    }
-    res.status(201).json(await createTemplate(parsed.fields as Required<typeof parsed.fields>))
-  }),
-)
-
-app.patch(
-  '/api/email/templates/:id',
-  asyncHandler(async (req, res) => {
-    const parsed = templateFields(req.body ?? {}, true)
-    if ('error' in parsed) {
-      res.status(400).json({ error: parsed.error })
-      return
-    }
-    const template = await updateTemplate(req.params.id, parsed.fields)
-    if (!template) {
-      res.status(404).json({ error: 'template not found' })
-      return
-    }
-    res.json(template)
-  }),
-)
-
-app.delete(
-  '/api/email/templates/:id',
-  asyncHandler(async (req, res) => {
-    const deleted = await deleteTemplate(req.params.id)
-    if (!deleted) {
-      res.status(404).json({ error: 'template not found' })
-      return
-    }
-    res.status(204).end()
-  }),
-)
-
-app.post(
   '/api/email/preview',
   asyncHandler(async (req, res) => {
-    const { subject, body, guestId } = req.body ?? {}
-    if (typeof subject !== 'string' || typeof body !== 'string') {
-      res.status(400).json({ error: 'subject and body are required' })
-      return
-    }
     const [wedding, guests] = await Promise.all([getWedding(), getGuests()])
-    const guest = guests.find((g) => g.id === Number(guestId)) ?? {
+    const guest = guests.find((g) => g.id === Number(req.query.guestId)) ?? {
       name: 'Alex Example',
       inviteUrl: `${process.env.RSVP_SITE_URL || 'http://localhost:5174'}/?g=example`,
     }
-    res.json(renderEmail({ subject, body }, guest, wedding))
+    res.json(renderInviteEmail(guest, wedding))
   }),
 )
 
 app.post(
   '/api/email/stage',
   asyncHandler(async (req, res) => {
-    const { templateId, guestIds, sendAfter, skipAlreadySent } = req.body ?? {}
-    if (typeof templateId !== 'string' || !templateId) {
-      res.status(400).json({ error: 'templateId is required' })
-      return
-    }
+    const { guestIds, sendAfter, skipAlreadySent } = req.body ?? {}
     if (!Array.isArray(guestIds) || guestIds.length === 0 || !guestIds.every(Number.isInteger)) {
       res.status(400).json({ error: 'guestIds must be a non-empty array of guest ids' })
       return
@@ -599,11 +576,7 @@ app.post(
       }
       sendAfterIso = parsed.toISOString()
     }
-    if (!(await getTemplate(templateId))) {
-      res.status(404).json({ error: 'template not found' })
-      return
-    }
-    const result = await stageEmails(templateId, guestIds, {
+    const result = await stageEmails(guestIds, {
       sendAfter: sendAfterIso,
       skipAlreadySent: skipAlreadySent !== false,
     })

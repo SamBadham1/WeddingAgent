@@ -28,11 +28,11 @@ const SEED_GUESTS: Omit<Guest, 'id' | 'rsvpToken' | 'inviteUrl' | 'rsvpMessage' 
 ]
 
 const SEED_TASKS: Omit<Task, 'id'>[] = [
-  { title: 'Book venue', done: true },
-  { title: 'Send save-the-dates', done: true },
-  { title: 'Choose caterer', done: false },
-  { title: 'Order invitations', done: false },
-  { title: 'Finalize guest list', done: false },
+  { title: 'Book venue', done: true, notes: '', labels: [] },
+  { title: 'Send save-the-dates', done: true, notes: '', labels: [] },
+  { title: 'Choose caterer', done: false, notes: '', labels: [] },
+  { title: 'Order invitations', done: false, notes: '', labels: [] },
+  { title: 'Finalize guest list', done: false, notes: '', labels: [] },
 ]
 
 const SEED_BUDGET: Omit<BudgetItem, 'id'>[] = [
@@ -78,6 +78,10 @@ function taskFromDoc(id: number, data: DocumentData): Task {
     id,
     title: data.title,
     done: data.done,
+    notes: typeof data.notes === 'string' ? data.notes : '',
+    labels: Array.isArray(data.labels)
+      ? data.labels.filter((l: unknown): l is string => typeof l === 'string')
+      : [],
   }
 }
 
@@ -234,6 +238,14 @@ async function findGuestRefByRsvpToken(token: string) {
   return snap.empty ? null : snap.docs[0]
 }
 
+export async function deleteGuest(id: number): Promise<boolean> {
+  const ref = db.collection(COLLECTIONS.guests).doc(String(id))
+  const snap = await ref.get()
+  if (!snap.exists) return false
+  await ref.delete()
+  return true
+}
+
 export async function getGuestByRsvpToken(token: string): Promise<Guest | null> {
   const doc = await findGuestRefByRsvpToken(token)
   return doc ? guestFromDoc(Number(doc.id), doc.data()) : null
@@ -264,32 +276,38 @@ export async function getTasks(): Promise<Task[]> {
     .sort((a, b) => a.id - b.id)
 }
 
-export async function createTask(title: string): Promise<Task> {
+export async function createTask(title: string, notes = '', labels: string[] = []): Promise<Task> {
   const id = await nextId('taskId')
   const task: Task = {
     id,
     title,
     done: false,
+    notes,
+    labels,
   }
   await db.collection(COLLECTIONS.tasks).doc(String(id)).set({
     title: task.title,
     done: task.done,
+    notes: task.notes,
+    labels: task.labels,
   })
   return task
 }
 
 export async function updateTask(
   id: number,
-  patch: Partial<Pick<Task, 'title' | 'done'>>,
+  patch: Partial<Pick<Task, 'title' | 'done' | 'notes' | 'labels'>>,
 ): Promise<Task | null> {
   const ref = db.collection(COLLECTIONS.tasks).doc(String(id))
   const snap = await ref.get()
   if (!snap.exists) return null
   const data = snap.data()!
 
-  const updates: Record<string, string | boolean> = {}
+  const updates: Record<string, string | boolean | string[]> = {}
   if (typeof patch.title === 'string') updates.title = patch.title
   if (typeof patch.done === 'boolean') updates.done = patch.done
+  if (typeof patch.notes === 'string') updates.notes = patch.notes
+  if (Array.isArray(patch.labels)) updates.labels = patch.labels
   if (Object.keys(updates).length === 0) return taskFromDoc(id, data)
 
   await ref.update(updates)

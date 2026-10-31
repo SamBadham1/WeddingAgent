@@ -1,7 +1,6 @@
 import type {
   BudgetItem,
   DispatchResult,
-  EmailTemplate,
   Guest,
   OutboxEmail,
   RenderedEmail,
@@ -90,6 +89,14 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(patch),
     }).then((r) => json<Guest>(r)),
+  deleteGuest: (id: number) =>
+    fetch(`/api/guests/${id}`, { method: 'DELETE' }).then((r) => {
+      if (!r.ok && r.status !== 204) {
+        return r.json().then((body) => {
+          throw new Error((body as { error?: string }).error ?? `Request failed: ${r.status}`)
+        })
+      }
+    }),
   getTasks: () => fetch('/api/tasks').then((r) => json<Task[]>(r)),
   addTask: (title: string) =>
     fetch('/api/tasks', {
@@ -103,7 +110,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ done }),
     }).then((r) => json<Task>(r)),
-  updateTask: (id: number, patch: Partial<Pick<Task, 'title' | 'done'>>) =>
+  updateTask: (id: number, patch: Partial<Pick<Task, 'title' | 'done' | 'notes' | 'labels'>>) =>
     fetch(`/api/tasks/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -145,25 +152,15 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message }),
     }).then((r) => json<{ reply: string }>(r)),
-  getEmailTemplates: () => fetch('/api/email/templates').then((r) => json<EmailTemplate[]>(r)),
-  createEmailTemplate: (fields: Pick<EmailTemplate, 'name' | 'subject' | 'body'>) =>
-    postJson('/api/email/templates', fields).then((r) => json<EmailTemplate>(r)),
-  updateEmailTemplate: (
-    id: string,
-    patch: Partial<Pick<EmailTemplate, 'name' | 'subject' | 'body'>>,
-  ) => postJson(`/api/email/templates/${id}`, patch, 'PATCH').then((r) => json<EmailTemplate>(r)),
-  deleteEmailTemplate: (id: string) =>
-    fetch(`/api/email/templates/${id}`, { method: 'DELETE' }).then((r) => {
-      if (!r.ok) return json<never>(r)
-    }),
-  previewEmail: (subject: string, body: string, guestId?: number) =>
-    postJson('/api/email/preview', { subject, body, guestId }).then((r) => json<RenderedEmail>(r)),
+  previewEmail: (guestId?: number) =>
+    fetch(`/api/email/preview${guestId === undefined ? '' : `?guestId=${guestId}`}`).then((r) =>
+      json<RenderedEmail>(r),
+    ),
   stageEmails: (
-    templateId: string,
     guestIds: number[],
     options: { sendAfter?: string; skipAlreadySent?: boolean } = {},
   ) =>
-    postJson('/api/email/stage', { templateId, guestIds, ...options }).then((r) =>
+    postJson('/api/email/stage', { guestIds, ...options }).then((r) =>
       json<StageResult>(r),
     ),
   getOutbox: () =>

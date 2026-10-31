@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import type { Guest } from '../types'
-import { EditIcon, LinkIcon } from './icons'
+import { EditIcon, LinkIcon, TrashIcon } from './icons'
 
 function GuestRow({
   guest,
@@ -16,6 +16,7 @@ function GuestRow({
   const [overnight, setOvernight] = useState(guest.overnight)
   const [saving, setSaving] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [removing, setRemoving] = useState(false)
 
   useEffect(() => {
     setGroup(guest.group)
@@ -56,6 +57,17 @@ function GuestRow({
     await navigator.clipboard.writeText(guest.inviteUrl)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
+  }
+
+  async function remove() {
+    if (!window.confirm(`Delete ${guest.name}? Their RSVP and invite link stop working, and any queued email to them is cancelled.`)) return
+    setRemoving(true)
+    try {
+      await api.deleteGuest(guest.id)
+      onChange()
+    } finally {
+      setRemoving(false)
+    }
   }
 
   async function cycleRsvp() {
@@ -145,8 +157,18 @@ function GuestRow({
           className="icon-btn"
           aria-label={`Edit ${guest.name}`}
           onClick={startEdit}
+          disabled={removing}
         >
           <EditIcon />
+        </button>
+        <button
+          type="button"
+          className="icon-btn icon-btn-danger"
+          aria-label={`Delete ${guest.name}`}
+          onClick={remove}
+          disabled={removing}
+        >
+          <TrashIcon />
         </button>
       </div>
     </li>

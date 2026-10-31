@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api } from '../api'
-import type { EmailTemplate, Guest, OutboxEmail, StageResult } from '../types'
+import type { Guest, OutboxEmail, StageResult } from '../types'
 
 type Filter = 'all' | 'pending' | `group:${string}`
 
@@ -12,17 +12,14 @@ function matches(guest: Guest, filter: Filter): boolean {
 }
 
 export function EmailCompose({
-  templates,
   guests,
   outbox,
   onStaged,
 }: {
-  templates: EmailTemplate[]
   guests: Guest[]
   outbox: OutboxEmail[]
   onStaged: () => void
 }) {
-  const [templateId, setTemplateId] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [sendAfter, setSendAfter] = useState('')
@@ -33,20 +30,14 @@ export function EmailCompose({
 
   const groups = useMemo(() => [...new Set(guests.map((g) => g.group))].sort(), [guests])
 
-  // Guests that already have this template queued or sent
+  // Guests with any email queued or sent, including invites from the old templates
   const alreadyHas = useMemo(
     () =>
       new Set(
-        outbox
-          .filter((e) => e.templateId === templateId && ['queued', 'sending', 'sent'].includes(e.status))
-          .map((e) => e.guestId),
+        outbox.filter((e) => ['queued', 'sending', 'sent'].includes(e.status)).map((e) => e.guestId),
       ),
-    [outbox, templateId],
+    [outbox],
   )
-
-  useEffect(() => {
-    if (!templateId && templates.length > 0) setTemplateId(templates[0].id)
-  }, [templates, templateId])
 
   useEffect(() => {
     setSelected(new Set(guests.filter((g) => matches(g, filter)).map((g) => g.id)))
@@ -64,7 +55,7 @@ export function EmailCompose({
     setError(null)
     setResult(null)
     try {
-      const res = await api.stageEmails(templateId, [...selected], {
+      const res = await api.stageEmails([...selected], {
         sendAfter: sendAfter ? new Date(sendAfter).toISOString() : undefined,
         skipAlreadySent,
       })
@@ -77,24 +68,10 @@ export function EmailCompose({
     }
   }
 
-  if (templates.length === 0) return null
-
   return (
     <section className="card page-card">
-      <h2>Stage emails</h2>
+      <h2>Stage invites</h2>
       <div className="add-form email-compose-controls">
-        <select
-          className="budget-input"
-          aria-label="Template"
-          value={templateId}
-          onChange={(e) => setTemplateId(e.target.value)}
-        >
-          {templates.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.name}
-            </option>
-          ))}
-        </select>
         <select
           className="budget-input"
           aria-label="Recipients"
@@ -135,7 +112,7 @@ export function EmailCompose({
               </span>
             </label>
             <span className="email-guest-pills">
-              {alreadyHas.has(g.id) && <span className="pill">Has this email</span>}
+              {alreadyHas.has(g.id) && <span className="pill">Invited</span>}
               <span className={`pill rsvp-pill-${g.rsvp}`}>{g.rsvp}</span>
             </span>
           </li>
@@ -149,10 +126,10 @@ export function EmailCompose({
             checked={skipAlreadySent}
             onChange={(e) => setSkipAlreadySent(e.target.checked)}
           />
-          Skip guests who already have this email
+          Skip guests who already have an invite
         </label>
-        <button type="button" onClick={stage} disabled={staging || selected.size === 0 || !templateId}>
-          {staging ? 'Staging…' : `Stage ${selected.size} email${selected.size === 1 ? '' : 's'}`}
+        <button type="button" onClick={stage} disabled={staging || selected.size === 0}>
+          {staging ? 'Staging…' : `Stage ${selected.size} invite${selected.size === 1 ? '' : 's'}`}
         </button>
       </div>
 
