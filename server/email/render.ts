@@ -14,10 +14,6 @@ const COLOR = {
   moss: '#5b6f45',
   sage: '#b9c4ab',
   lace: '#f6f4ee',
-  surfaceRaised: '#fffdf8',
-  ink: '#1f3024',
-  inkMuted: '#56604f',
-  line: '#d5d0c2',
 }
 
 const SCRIPT = `'Great Vibes','Brush Script MT','Segoe Script',cursive`
@@ -72,7 +68,7 @@ function nameLines(coupleNames: string): string[] {
 }
 
 function paragraph(html: string): string {
-  return `<p style="margin:0 0 20px;font-family:${SANS};font-size:16px;line-height:26px;color:${COLOR.ink};">${html}</p>`
+  return `<p style="margin:0 0 20px;font-family:${SANS};font-size:16px;line-height:26px;color:${COLOR.lace};">${html}</p>`
 }
 
 export function renderInviteEmail(
@@ -120,22 +116,23 @@ export function renderInviteEmail(
     `<p style="margin:32px 0 8px;font-family:${SANS};font-size:15px;line-height:26px;font-weight:500;letter-spacing:0.12em;text-transform:uppercase;color:${COLOR.lace};">${dates.displayHtml}</p>` +
     `<p style="margin:0;font-family:${SANS};font-size:15px;line-height:26px;font-weight:500;letter-spacing:0.12em;text-transform:uppercase;color:${COLOR.lace};">${e(VENUE)}</p>` +
     `</td></tr></table></td></tr></table></td></tr></table></td></tr>` +
-    // Letter
-    `<tr><td style="background:${COLOR.surfaceRaised};padding:40px 32px;">` +
+    // Letter: dark like the hero, because dark-mode clients (Yahoo, Gmail, Outlook.com)
+    // ignore color-scheme and recolour light backgrounds and dark text
+    `<tr><td bgcolor="${COLOR.moss}" style="background:${COLOR.moss};padding:40px 32px;">` +
     paragraph(`Dear ${e(firstName)},`) +
     paragraph(
       `We're getting married, and we'd love you to be there. Join us at ${e(venueName)} on ${e(venueArea)} on ${e(dates.text)}.`,
     ) +
     paragraph(`Please let us know whether you can make it.`) +
     `<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:8px auto 28px;"><tr>` +
-    `<td style="background:${COLOR.forest};">` +
+    `<td bgcolor="${COLOR.forest}" style="background:${COLOR.forest};border:1px solid ${COLOR.lace};">` +
     `<a href="${url}" style="display:inline-block;padding:16px 32px;font-family:${SANS};font-size:12px;line-height:16px;font-weight:500;letter-spacing:0.2em;text-transform:uppercase;color:${COLOR.lace};text-decoration:none;">RSVP</a>` +
     `</td></tr></table>` +
-    `<p style="margin:0 0 28px;font-family:${SANS};font-size:14px;line-height:22px;color:${COLOR.inkMuted};text-align:center;">` +
+    `<p style="margin:0 0 28px;font-family:${SANS};font-size:14px;line-height:22px;color:${COLOR.sage};text-align:center;">` +
     `The link is just for you, so please don't share it. If the button doesn't work, copy this into your browser:<br>` +
-    `<a href="${url}" style="color:${COLOR.inkMuted};word-break:break-all;">${url}</a></p>` +
-    `<p style="margin:0;border-top:1px solid ${COLOR.line};padding-top:24px;font-family:${SANS};font-size:16px;line-height:26px;color:${COLOR.ink};">Love,</p>` +
-    `<p style="margin:0;font-family:${SCRIPT};font-size:36px;line-height:1.2;color:${COLOR.ink};">${e(couple)}</p>` +
+    `<a href="${url}" style="color:${COLOR.sage};word-break:break-all;">${url}</a></p>` +
+    `<p style="margin:0;border-top:1px solid ${COLOR.sage};padding-top:24px;font-family:${SANS};font-size:16px;line-height:26px;color:${COLOR.lace};">Love,</p>` +
+    `<p style="margin:0;font-family:${SCRIPT};font-size:36px;line-height:1.2;color:${COLOR.lace};">${e(couple)}</p>` +
     `</td></tr>` +
     // Footer
     `<tr><td align="center" style="padding:24px 16px 0;font-family:${SANS};font-size:12px;line-height:16px;font-weight:500;letter-spacing:0.2em;text-transform:uppercase;color:${COLOR.sage};">` +
