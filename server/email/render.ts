@@ -86,7 +86,7 @@ export function renderInviteEmail(
   const text = [
     `Dear ${firstName},`,
     `We're getting married, and we'd love you to be there. Join us at ${venueName} on ${venueArea} on ${dates.text}.`,
-    `Please let us know whether you can make it on your RSVP page:\n${guest.inviteUrl}`,
+    `Please RSVP using the link below to let us know whether you can make it:\n${guest.inviteUrl}`,
     `The link is just for you, so please don't share it.`,
     `Love,\n${couple}`,
   ].join('\n\n')
@@ -123,7 +123,7 @@ export function renderInviteEmail(
     paragraph(
       `We're getting married, and we'd love you to be there. Join us at ${e(venueName)} on ${e(venueArea)} on ${e(dates.text)}.`,
     ) +
-    paragraph(`Please let us know whether you can make it.`) +
+    paragraph(`Please tap the RSVP button below to let us know whether you can make it.`) +
     `<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:8px auto 28px;"><tr>` +
     `<td bgcolor="${COLOR.forest}" style="background:${COLOR.forest};border:1px solid ${COLOR.lace};">` +
     `<a href="${url}" style="display:inline-block;padding:16px 32px;font-family:${SANS};font-size:12px;line-height:16px;font-weight:500;letter-spacing:0.2em;text-transform:uppercase;color:${COLOR.lace};text-decoration:none;">RSVP</a>` +
