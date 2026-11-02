@@ -1,8 +1,37 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { api } from '../api'
 import type { Guest } from '../types'
 import { EditIcon, LinkIcon, TrashIcon } from './icons'
 import { GuestImport } from './GuestImport'
+
+const PAGE_SIZES = [10, 25, 50, 100]
+
+type RsvpFilter = 'all' | Guest['rsvp']
+type OvernightFilter = 'all' | 'yes' | 'no'
+type EmailFilter = 'all' | 'has' | 'none' | 'emailed' | 'not-emailed'
+
+interface Filters {
+  search: string
+  rsvp: RsvpFilter
+  overnight: OvernightFilter
+  email: EmailFilter
+}
+
+const NO_FILTERS: Filters = { search: '', rsvp: 'all', overnight: 'all', email: 'all' }
+
+function matches(guest: Guest, f: Filters): boolean {
+  const q = f.search.trim().toLowerCase()
+  if (q && ![guest.name, guest.email, guest.group, guest.rsvpMessage].some((v) => v.toLowerCase().includes(q))) {
+    return false
+  }
+  if (f.rsvp !== 'all' && guest.rsvp !== f.rsvp) return false
+  if (f.overnight !== 'all' && guest.overnight !== (f.overnight === 'yes')) return false
+  if (f.email === 'has' && !guest.email) return false
+  if (f.email === 'none' && guest.email) return false
+  if (f.email === 'emailed' && !guest.lastEmailedAt) return false
+  if (f.email === 'not-emailed' && (!guest.email || guest.lastEmailedAt)) return false
+  return true
+}
 
 function GuestRow({
   guest,
@@ -190,6 +219,23 @@ export function GuestSection({
   const confirmed = guests.filter((g) => g.rsvp === 'yes').length
   const stayingOver = guests.filter((g) => g.overnight).length
 
+  const [filters, setFilters] = useState<Filters>(NO_FILTERS)
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(25)
+
+  const filtered = useMemo(() => guests.filter((g) => matches(g, filters)), [guests, filters])
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
+  // Clamp rather than reset, so deleting the last guest on a page doesn't strand you on an empty one
+  const currentPage = Math.min(page, pageCount)
+  const start = (currentPage - 1) * pageSize
+  const visible = filtered.slice(start, start + pageSize)
+  const isFiltered = JSON.stringify(filters) !== JSON.stringify(NO_FILTERS)
+
+  function updateFilter<K extends keyof Filters>(key: K, value: Filters[K]) {
+    setFilters((f) => ({ ...f, [key]: value }))
+    setPage(1)
+  }
+
   async function add(e: React.FormEvent) {
     e.preventDefault()
     if (!name.trim()) return
@@ -240,11 +286,113 @@ export function GuestSection({
         <button type="submit">Add</button>
       </form>
       <GuestImport onImported={onChange} />
+      <div className="add-form guest-filters">
+        <input
+          type="search"
+          className="guest-search"
+          aria-label="Search guests"
+          placeholder="Search name, email, group or message"
+          value={filters.search}
+          onChange={(e) => updateFilter('search', e.target.value)}
+        />
+        <select
+          className="budget-input"
+          aria-label="Filter by RSVP"
+          value={filters.rsvp}
+          onChange={(e) => updateFilter('rsvp', e.target.value as RsvpFilter)}
+        >
+          <option value="all">Any RSVP</option>
+          <option value="yes">Yes</option>
+          <option value="no">No</option>
+          <option value="pending">Pending</option>
+        </select>
+        <select
+          className="budget-input"
+          aria-label="Filter by overnight"
+          value={filters.overnight}
+          onChange={(e) => updateFilter('overnight', e.target.value as OvernightFilter)}
+        >
+          <option value="all">Overnight or not</option>
+          <option value="yes">Staying overnight</option>
+          <option value="no">Not staying</option>
+        </select>
+        <select
+          className="budget-input"
+          aria-label="Filter by email"
+          value={filters.email}
+          onChange={(e) => updateFilter('email', e.target.value as EmailFilter)}
+        >
+          <option value="all">Any email status</option>
+          <option value="has">Has email</option>
+          <option value="none">No email</option>
+          <option value="emailed">Emailed</option>
+          <option value="not-emailed">Not yet emailed</option>
+        </select>
+        {isFiltered && (
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => {
+              setFilters(NO_FILTERS)
+              setPage(1)
+            }}
+          >
+            Clear
+          </button>
+        )}
+      </div>
       <ul className="list guest-list">
-        {guests.map((g) => (
+        {visible.map((g) => (
           <GuestRow key={g.id} guest={g} onChange={onChange} />
         ))}
       </ul>
+      {filtered.length === 0 && guests.length > 0 && (
+        <p className="muted guest-empty">No guests match these filters.</p>
+      )}
+      {filtered.length > 0 && (
+        <div className="guest-pagination">
+          <span className="muted">
+            {start + 1}–{start + visible.length} of {filtered.length}
+            {isFiltered ? ` (filtered from ${guests.length})` : ''}
+          </span>
+          <div className="guest-pagination-controls">
+            <select
+              className="budget-input"
+              aria-label="Guests per page"
+              value={pageSize}
+              onChange={(e) => {
+                setPageSize(Number(e.target.value))
+                setPage(1)
+              }}
+            >
+              {PAGE_SIZES.map((n) => (
+                <option key={n} value={n}>
+                  {n} per page
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => setPage(currentPage - 1)}
+              disabled={currentPage <= 1}
+            >
+              Prev
+            </button>
+            <span className="muted">
+              Page {currentPage} of {pageCount}
+            </span>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => setPage(currentPage + 1)}
+              disabled={currentPage >= pageCount}
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
     </section>
   )
 }

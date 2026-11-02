@@ -19,6 +19,8 @@ const SEED_WEDDING: Wedding = {
   coupleNames: 'Sam & Sam',
   date: '2026-09-19',
   totalBudget: 30000,
+  pricePerHead: 0,
+  minimumSpend: 0,
 }
 
 const SEED_GUESTS: Omit<Guest, 'id' | 'rsvpToken' | 'inviteUrl' | 'rsvpMessage' | 'lastEmailedAt'>[] = [
@@ -158,16 +160,27 @@ export async function getWedding(): Promise<Wedding> {
   if (!snap.exists) {
     throw new Error('wedding document not found — run seedIfEmpty first')
   }
-  return snap.data() as Wedding
+  const data = snap.data()!
+  return {
+    coupleNames: data.coupleNames,
+    date: data.date,
+    totalBudget: data.totalBudget,
+    // Older wedding docs predate these fields
+    pricePerHead: typeof data.pricePerHead === 'number' ? data.pricePerHead : 0,
+    minimumSpend: typeof data.minimumSpend === 'number' ? data.minimumSpend : 0,
+  }
 }
 
 export async function getWeddingSummary(): Promise<WeddingSummary> {
-  const [wedding, budget] = await Promise.all([getWedding(), getBudget()])
+  const [wedding, budget, guests] = await Promise.all([getWedding(), getBudget(), getGuests()])
   const spent = budget.reduce((sum, b) => sum + b.actual, 0)
+  const confirmedGuests = guests.filter((g) => g.rsvp === 'yes').length
   return {
     ...wedding,
     spent,
     remaining: wedding.totalBudget - spent,
+    confirmedGuests,
+    expectedGuests: confirmedGuests + guests.filter((g) => g.rsvp === 'pending').length,
   }
 }
 
@@ -401,9 +414,11 @@ export async function updateBudgetItem(
   return budgetFromDoc(id, { ...data, ...updates })
 }
 
-export async function updateWeddingTotalBudget(totalBudget: number): Promise<Wedding> {
+export async function updateWedding(
+  patch: Partial<Pick<Wedding, 'totalBudget' | 'pricePerHead' | 'minimumSpend'>>,
+): Promise<Wedding> {
   const ref = db.collection(COLLECTIONS.wedding).doc(WEDDING_DOC_ID)
-  await ref.update({ totalBudget })
+  await ref.update(patch)
   return getWedding()
 }
 

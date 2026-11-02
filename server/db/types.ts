@@ -35,11 +35,19 @@ export interface Wedding {
   coupleNames: string
   date: string
   totalBudget: number
+  /** Venue catering price per guest, kept apart from the budget line items */
+  pricePerHead: number
+  /** Venue minimum spend the per-head total is measured against */
+  minimumSpend: number
 }
 
 export interface WeddingSummary extends Wedding {
   spent: number
   remaining: number
+  /** Guests who RSVP'd yes */
+  confirmedGuests: number
+  /** Guests who RSVP'd yes or haven't answered yet */
+  expectedGuests: number
 }
 
 export interface Counters {

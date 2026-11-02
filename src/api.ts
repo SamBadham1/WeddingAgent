@@ -143,11 +143,11 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(patch),
     }).then((r) => json<BudgetItem>(r)),
-  updateTotalBudget: (totalBudget: number) =>
+  updateWedding: (patch: Partial<Pick<WeddingSummary, 'totalBudget' | 'pricePerHead' | 'minimumSpend'>>) =>
     fetch('/api/wedding', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ totalBudget }),
+      body: JSON.stringify(patch),
     }).then((r) => json<WeddingSummary>(r)),
   askAgent: (message: string) =>
     fetch('/api/agent', {

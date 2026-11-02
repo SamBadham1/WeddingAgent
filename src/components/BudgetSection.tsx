@@ -133,6 +133,141 @@ function BudgetRow({
   )
 }
 
+function money(n: number): string {
+  return `$${n.toLocaleString()}`
+}
+
+function MinimumSpendRow({
+  label,
+  guests,
+  wedding,
+}: {
+  label: string
+  guests: number
+  wedding: WeddingSummary
+}) {
+  const total = guests * wedding.pricePerHead
+  const shortfall = wedding.minimumSpend - total
+  return (
+    <li className="row">
+      <span>
+        {label} <span className="muted">· {guests} × {money(wedding.pricePerHead)}</span>
+      </span>
+      <span>
+        <strong>{money(total)}</strong>{' '}
+        {wedding.minimumSpend > 0 &&
+          (shortfall > 0 ? (
+            <span className="over">{money(shortfall)} short</span>
+          ) : (
+            <span className="min-spend-met">minimum met</span>
+          ))}
+      </span>
+    </li>
+  )
+}
+
+function MinimumSpend({ wedding, onChange }: { wedding: WeddingSummary; onChange: () => void }) {
+  const [editing, setEditing] = useState(false)
+  const [pricePerHead, setPricePerHead] = useState('')
+  const [minimumSpend, setMinimumSpend] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  function startEdit() {
+    setPricePerHead(String(wedding.pricePerHead))
+    setMinimumSpend(String(wedding.minimumSpend))
+    setEditing(true)
+  }
+
+  async function save() {
+    const nextPrice = parseAmount(pricePerHead)
+    const nextMinimum = parseAmount(minimumSpend)
+    if (nextPrice === null || nextMinimum === null) return
+    setSaving(true)
+    try {
+      await api.updateWedding({ pricePerHead: nextPrice, minimumSpend: nextMinimum })
+      setEditing(false)
+      onChange()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const guestsNeeded =
+    wedding.pricePerHead > 0 ? Math.ceil(wedding.minimumSpend / wedding.pricePerHead) : null
+
+  return (
+    <div className="min-spend">
+      <h3>Minimum spend</h3>
+      {editing ? (
+        <div className="budget-amounts min-spend-edit">
+          <label className="budget-field">
+            <span className="budget-label">Per head</span>
+            <input
+              className="budget-input budget-number"
+              type="number"
+              min={0}
+              step={0.01}
+              aria-label="Price per head"
+              value={pricePerHead}
+              onChange={(e) => setPricePerHead(e.target.value)}
+              disabled={saving}
+            />
+          </label>
+          <label className="budget-field">
+            <span className="budget-label">Total minimum</span>
+            <input
+              className="budget-input budget-number"
+              type="number"
+              min={0}
+              step={1}
+              aria-label="Minimum spend"
+              value={minimumSpend}
+              onChange={(e) => setMinimumSpend(e.target.value)}
+              disabled={saving}
+            />
+          </label>
+          <div className="budget-edit-actions">
+            <button type="button" className="btn-secondary" onClick={() => setEditing(false)} disabled={saving}>
+              Cancel
+            </button>
+            <button type="button" onClick={save} disabled={saving}>
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="budget-summary">
+          <span>
+            <strong>{money(wedding.pricePerHead)}</strong> per head
+          </span>
+          <span className="muted">·</span>
+          <span>
+            <strong>{money(wedding.minimumSpend)}</strong> minimum spend (all guests combined)
+          </span>
+          <button
+            type="button"
+            className="icon-btn"
+            aria-label="Edit price per head and minimum spend"
+            onClick={startEdit}
+          >
+            <EditIcon />
+          </button>
+        </div>
+      )}
+      <ul className="list">
+        <MinimumSpendRow label="Confirmed" guests={wedding.confirmedGuests} wedding={wedding} />
+        <MinimumSpendRow label="Confirmed + pending" guests={wedding.expectedGuests} wedding={wedding} />
+      </ul>
+      {guestsNeeded !== null && wedding.minimumSpend > 0 && (
+        <p className="muted min-spend-note">
+          You need {guestsNeeded} guest{guestsNeeded === 1 ? '' : 's'} at {money(wedding.pricePerHead)} a
+          head to reach the minimum.
+        </p>
+      )}
+    </div>
+  )
+}
+
 export function BudgetSection({
   wedding,
   budget,
@@ -167,7 +302,7 @@ export function BudgetSection({
     if (next === null) return
     setSavingTotal(true)
     try {
-      await api.updateTotalBudget(next)
+      await api.updateWedding({ totalBudget: next })
       setEditingTotal(false)
       onChange()
     } catch {
@@ -278,6 +413,8 @@ export function BudgetSection({
         />
         <button type="submit">Add item</button>
       </form>
+
+      <MinimumSpend wedding={wedding} onChange={onChange} />
     </section>
   )
 }

@@ -869,3 +869,68 @@ button:disabled {
   margin: 10px 0 0;
   color: var(--green);
 }
+
+.guest-filters {
+  margin-top: 16px;
+  align-items: center;
+}
+
+.add-form input.guest-search {
+  flex: 2 1 220px;
+}
+
+.guest-filters select {
+  flex: 1 1 140px;
+}
+
+.guest-empty {
+  margin: 12px 0 0;
+}
+
+.guest-pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  font-size: 0.9rem;
+}
+
+.guest-pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.min-spend {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.min-spend h3 {
+  margin: 0 0 10px;
+  font-size: 1rem;
+}
+
+.min-spend .budget-summary {
+  align-items: center;
+}
+
+.min-spend-edit {
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.min-spend-met {
+  color: var(--green);
+}
+
+.min-spend-note {
+  margin: 10px 0 0;
+  font-size: 0.9rem;
+}

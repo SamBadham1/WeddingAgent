@@ -24,7 +24,7 @@ import {
   updateTask,
   deleteGuest,
   deleteTask,
-  updateWeddingTotalBudget,
+  updateWedding,
 } from './db/store.js'
 import {
   cancelOutbox,
@@ -143,12 +143,21 @@ app.get(
 app.patch(
   '/api/wedding',
   asyncHandler(async (req, res) => {
-    const { totalBudget } = req.body ?? {}
-    if (!Number.isFinite(totalBudget) || totalBudget < 0) {
-      res.status(400).json({ error: 'totalBudget must be a non-negative number' })
+    const body = req.body ?? {}
+    const patch: Parameters<typeof updateWedding>[0] = {}
+    for (const field of ['totalBudget', 'pricePerHead', 'minimumSpend'] as const) {
+      if (body[field] === undefined) continue
+      if (!Number.isFinite(body[field]) || body[field] < 0) {
+        res.status(400).json({ error: `${field} must be a non-negative number` })
+        return
+      }
+      patch[field] = Number(body[field])
+    }
+    if (Object.keys(patch).length === 0) {
+      res.status(400).json({ error: 'nothing to update' })
       return
     }
-    await updateWeddingTotalBudget(Number(totalBudget))
+    await updateWedding(patch)
     res.json(await getWeddingSummary())
   }),
 )

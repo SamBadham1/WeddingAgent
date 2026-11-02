@@ -37,8 +37,12 @@ export interface WeddingSummary {
   coupleNames: string
   date: string
   totalBudget: number
+  pricePerHead: number
+  minimumSpend: number
   spent: number
   remaining: number
+  confirmedGuests: number
+  expectedGuests: number
 }
 
 export interface AgentMessage {
