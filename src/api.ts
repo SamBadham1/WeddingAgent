@@ -2,6 +2,7 @@ import type {
   BudgetItem,
   DispatchResult,
   Guest,
+  GuestImportResult,
   OutboxEmail,
   RenderedEmail,
   StageResult,
@@ -74,6 +75,8 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, group, email, overnight }),
     }).then((r) => json<Guest>(r)),
+  importGuests: (guests: { name: string; group: string; email: string; overnight: boolean }[]) =>
+    postJson('/api/guests/import', { guests }).then((r) => json<GuestImportResult>(r)),
   setRsvp: (id: number, rsvp: Guest['rsvp']) =>
     fetch(`/api/guests/${id}`, {
       method: 'PATCH',

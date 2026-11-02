@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import {
   createBudgetItem,
   createGuest,
+  createGuests,
   ensureGuestRsvpTokens,
   createTask,
   getBudget,
@@ -182,6 +183,50 @@ app.post(
       overnight === true,
     )
     res.status(201).json(guest)
+  }),
+)
+
+// Bulk import from the dashboard's CSV upload. Rows whose name matches an
+// existing guest (or an earlier row) are skipped so re-importing is safe.
+app.post(
+  '/api/guests/import',
+  asyncHandler(async (req, res) => {
+    const { guests: rows } = req.body ?? {}
+    if (!Array.isArray(rows) || rows.length === 0) {
+      res.status(400).json({ error: 'guests must be a non-empty array' })
+      return
+    }
+    if (rows.length > 2000) {
+      res.status(400).json({ error: 'too many guests in one import (max 2000)' })
+      return
+    }
+
+    const seen = new Set((await getGuests()).map((g) => g.name.trim().toLowerCase()))
+    const toCreate: Parameters<typeof createGuests>[0] = []
+    const skipped: { name: string; reason: string }[] = []
+
+    for (const row of rows) {
+      const name = typeof row?.name === 'string' ? row.name.trim() : ''
+      if (!name) {
+        skipped.push({ name: '', reason: 'missing name' })
+        continue
+      }
+      const key = name.toLowerCase()
+      if (seen.has(key)) {
+        skipped.push({ name, reason: 'already on the guest list' })
+        continue
+      }
+      seen.add(key)
+      toCreate.push({
+        name,
+        group: typeof row.group === 'string' && row.group.trim() !== '' ? row.group.trim() : 'Other',
+        email: typeof row.email === 'string' ? row.email.trim() : '',
+        overnight: row.overnight === true,
+      })
+    }
+
+    const created = await createGuests(toCreate)
+    res.status(201).json({ created: created.length, skipped })
   }),
 )
 

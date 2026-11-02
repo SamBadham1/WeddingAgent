@@ -94,18 +94,19 @@ function budgetFromDoc(id: number, data: DocumentData): BudgetItem {
   }
 }
 
-async function nextId(counterField: keyof Counters): Promise<number> {
+// Reserves `count` consecutive ids and returns the first one
+async function nextId(counterField: keyof Counters, count = 1): Promise<number> {
   const counterRef = db.collection(COLLECTIONS.counters).doc(COUNTERS_DOC_ID)
 
-  const next = await db.runTransaction(async (tx) => {
+  const first = await db.runTransaction(async (tx) => {
     const snap = await tx.get(counterRef)
     const counters = snap.data() as Counters
     const id = counters[counterField] + 1
-    tx.update(counterRef, { [counterField]: id })
+    tx.update(counterRef, { [counterField]: counters[counterField] + count })
     return id
   })
 
-  return next
+  return first
 }
 
 export async function seedIfEmpty(): Promise<void> {
@@ -206,6 +207,41 @@ export async function createGuest(
     rsvpToken,
   })
   return guest
+}
+
+export type NewGuest = Pick<Guest, 'name' | 'group' | 'email' | 'overnight'>
+
+// Bulk insert for CSV import. Firestore batches cap at 500 writes, so chunk.
+export async function createGuests(rows: NewGuest[]): Promise<Guest[]> {
+  if (rows.length === 0) return []
+  const firstId = await nextId('guestId', rows.length)
+  const guests = rows.map((row, i): Guest => {
+    const rsvpToken = generateRsvpToken()
+    return {
+      id: firstId + i,
+      ...row,
+      rsvp: 'pending',
+      rsvpToken,
+      inviteUrl: inviteUrlFor(rsvpToken),
+      rsvpMessage: '',
+      lastEmailedAt: '',
+    }
+  })
+  for (let i = 0; i < guests.length; i += 500) {
+    const batch = db.batch()
+    guests.slice(i, i + 500).forEach((g) => {
+      batch.set(db.collection(COLLECTIONS.guests).doc(String(g.id)), {
+        name: g.name,
+        rsvp: g.rsvp,
+        group: g.group,
+        email: g.email,
+        overnight: g.overnight,
+        rsvpToken: g.rsvpToken,
+      })
+    })
+    await batch.commit()
+  }
+  return guests
 }
 
 export async function updateGuest(

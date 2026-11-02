@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../api'
 import type { Guest } from '../types'
 import { EditIcon, LinkIcon, TrashIcon } from './icons'
+import { GuestImport } from './GuestImport'
 
 function GuestRow({
   guest,
@@ -238,6 +239,7 @@ export function GuestSection({
         </label>
         <button type="submit">Add</button>
       </form>
+      <GuestImport onImported={onChange} />
       <ul className="list guest-list">
         {guests.map((g) => (
           <GuestRow key={g.id} guest={g} onChange={onChange} />

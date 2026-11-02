@@ -11,6 +11,11 @@ export interface Guest {
   lastEmailedAt: string
 }
 
+export interface GuestImportResult {
+  created: number
+  skipped: { name: string; reason: string }[]
+}
+
 export interface Task {
   id: number
   title: string
